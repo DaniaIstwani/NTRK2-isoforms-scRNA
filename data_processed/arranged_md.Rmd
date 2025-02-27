@@ -1,0 +1,1105 @@
+---
+title: "arranged"
+output: html_document
+date: '2024-05-25'
+---
+
+```{r setup, ech=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+source("/data/gpfs/projects/punim2183/data_processed/my_functions.R")
+load("my_workspace.RData")
+save.image(file = "my_workspace.RData")
+
+
+```
+
+Summarizing cell counts for each cell type and calculating the proportion of each cell type for scaling
+
+```{r}
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+gene_of_interest <- "Ntrk2"
+
+```
+
+
+```{r}
+cell_counts <- mouse_cortex_data@meta.data %>%
+    group_by(SampleID) %>%
+    summarise(TotalCellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+summary(cell_counts)
+
+neurons_cell_counts <- mouse_cortex_data@meta.data %>%
+    dplyr::filter(Class == "Neurons") %>%
+    dplyr::group_by(SampleID) %>%
+    dplyr::summarise(NeuronsCellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+head(neurons_cell_counts)
+summary(neurons_cell_counts)
+
+
+astrocytes_cell_counts <- mouse_cortex_data@meta.data %>%
+    dplyr::filter(Class == "Astrocytes") %>%
+    dplyr::group_by(SampleID) %>%
+    dplyr::summarise(AstrocytesCellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+head(astrocytes_cell_counts)
+summary(astrocytes_cell_counts)
+
+oligos_cell_counts <- mouse_cortex_data@meta.data %>%
+    dplyr::filter(Class == "Oligos") %>%
+    dplyr::group_by(SampleID) %>%
+    dplyr::summarise(OligosCellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+head(oligos_cell_counts)
+summary(oligos_cell_counts)
+
+
+merged_counts <- cell_counts %>%
+    left_join(neurons_cell_counts, by = "SampleID") %>%
+    left_join(astrocytes_cell_counts, by = "SampleID") %>%
+    left_join(oligos_cell_counts, by = "SampleID")
+merged_counts[is.na(merged_counts)] <- 0
+
+merged_counts <- merged_counts %>%
+    mutate(
+        NeuronsProportion = NeuronsCellCount / TotalCellCount,
+        AstrocytesProportion = AstrocytesCellCount / TotalCellCount,
+        OligosProportion = OligosCellCount / TotalCellCount
+    )
+
+
+merged_counts <- merged_counts %>%
+    rowwise() %>%
+    mutate(
+        SumProportions = NeuronsProportion + AstrocytesProportion + OligosProportion,
+        NeuronsProportion = NeuronsProportion / SumProportions,
+        AstrocytesProportion = AstrocytesProportion / SumProportions,
+        OligosProportion = OligosProportion / SumProportions
+    ) %>%
+    select(-SumProportions)
+
+head(merged_counts)
+
+summary(merged_counts)
+
+```
+
+selecting samples with minimum cell count of each type:
+
+```{r}
+
+# calculate overall proportions of each cell type of interest in the entire dataset
+
+prop <- calculate_overall_proportions(mouse_cortex_data)
+
+prop
+
+
+```
+
+```{r}
+
+neuron_proportion <- get_proportion(prop, "Neurons")
+print(neuron_proportion)
+
+astrocyte_proportion <- get_proportion(prop, "Astrocytes")
+print(astrocyte_proportion)
+
+oligo_proportion <- get_proportion(prop, "Oligos")
+print(oligo_proportion)
+
+
+```
+
+
+
+```{r}
+min_500 <- as.data.frame(filter_samples_by_min_count(mouse_cortex_data, 500))
+min_500_IDs <-min_500$`filter_samples_by_min_count(mouse_cortex_data, 500)`
+
+min_750 <- as.data.frame(filter_samples_by_min_count(mouse_cortex_data, 750))
+min_750_IDs <- min_750$`filter_samples_by_min_count(mouse_cortex_data, 750)`
+
+min_1000 <- as.data.frame(filter_samples_by_min_count(mouse_cortex_data, 1000))
+min_1000_IDs <- min_1000$`filter_samples_by_min_count(mouse_cortex_data, 1000)`
+
+
+min_1200 <- as.data.frame(filter_samples_by_min_count(mouse_cortex_data, 1200))
+min_1200_IDs <- min_1200$`filter_samples_by_min_count(mouse_cortex_data, 1200)`
+
+
+min_1500 <- filter_samples_by_min_count(mouse_cortex_data, 1500)
+
+
+```
+
+```{r, subsetting Seurat to min count filter}
+
+subset_500 <- subset_seurat_by_filtered_samples(mouse_cortex_data, min_500_IDs)
+subset_750 <- subset_seurat_by_filtered_samples(mouse_cortex_data, min_750_IDs)
+subset_1000 <- subset_seurat_by_filtered_samples(mouse_cortex_data, min_1000_IDs)
+subset_1200 <- subset_seurat_by_filtered_samples(mouse_cortex_data, min_1200_IDs)
+
+```
+
+```{r}
+gene <- "Ntrk2"
+threshold_1 <- 1.0  
+threshold_2 <- 0.1
+percentage_thresholds <- c(5, 10, 15, 20)
+cell_types_of_interest <- c("Astrocytes", "Neurons", "Oligos")
+
+# Initialize an empty list to store results
+results_list <- list()
+
+# Function to run filtering and store results
+run_filtering <- function(seurat_obj, gene, thresholds, percentage_thresholds, cell_types) {
+  results <- data.frame()
+  
+  for (threshold in thresholds) {
+    for (percent_threshold in percentage_thresholds) {
+      filtered_samples <- filter_samples_by_gene_expression_O(seurat_obj, gene, threshold, percent_threshold, cell_types)
+      if (length(filtered_samples) > 0) {
+        temp_df <- data.frame(SampleID = filtered_samples, Threshold = threshold, PercentageThreshold = percent_threshold)
+        results <- rbind(results, temp_df)
+      }
+    }
+  }
+  return(results)
+}
+
+# Run filtering for each subset and store results
+#results_list[["subset_500"]] <- run_filtering(subset_500, gene, c(threshold_1, threshold_2), percentage_thresholds, cell_types_of_interest)
+results_list[["subset_750"]] <- run_filtering(subset_750, gene, c(threshold_1, threshold_2), percentage_thresholds, cell_types_of_interest)
+results_list[["subset_1000"]] <- run_filtering(subset_1000, gene, c(threshold_1, threshold_2), percentage_thresholds, cell_types_of_interest)
+results_list[["subset_1200"]] <- run_filtering(subset_1200, gene, c(threshold_1, threshold_2), percentage_thresholds, cell_types_of_interest)
+
+# Combine all results into a single data frame
+combined_results <- do.call(rbind, results_list)
+
+# Add a column to identify the subset
+combined_results$Subset <- rep(names(results_list), times = sapply(results_list, nrow))
+
+# Export to Excel
+write_xlsx(combined_results, "filtered_samples_results.xlsx")
+
+
+```
+
+```{r}
+# Filter for 5% and 15% only
+filtered_5_15 <- combined_results %>% filter(PercentageThreshold %in% c(5, 15) & Threshold %in% c(0.1, 1))
+
+# Filter for all percentages (5%, 10%, 15%, 20%)
+filtered_all <- combined_results %>% filter(PercentageThreshold %in% c(5, 10, 15, 20) & Threshold %in% c(0.1, 1))
+
+# Plot for 5% and 15% only
+plot_5_15 <- ggplot(filtered_5_15, aes(x = Subset, fill = interaction(Threshold, PercentageThreshold))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Combination of MinCellCount and Ntrk2-Expression-Level Thresholds (5% and 15%)",
+       x = "Subset",
+       y = "Number of Samples",
+       fill = "Threshold and Percentage") +
+  theme_minimal() +
+  scale_fill_discrete(name = "Threshold and Percentage",
+                      labels = c("0.1-5%", "0.1-15%", "1-5%", "1-15%"))
+
+# Plot for all percentages
+plot_all <- ggplot(filtered_all, aes(x = Subset, fill = interaction(Threshold, PercentageThreshold))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Different Combinations of MinCellCount and Ntrk2-Expression-Level Thresholds (All Percentages)",
+       x = "Subset by MinCellCount",
+       y = "Number of Samples",
+       fill = "Threshold and Percentage") +
+  theme_minimal() +
+  scale_fill_discrete(name = "Threshold and Percentage",
+                      labels = c("0.1-5%", "0.1-10%", "0.1-15%", "0.1-20%",
+                                 "1-5%", "1-10%", "1-15%", "1-20%"))
+
+# Print plots
+print(plot_5_15)
+print(plot_all)
+
+
+
+
+# diff_thresholds <- ggplot(combined_results, aes(x = Subset, fill = interaction(Threshold, PercentageThreshold))) +
+#   geom_bar(position = "dodge") +
+#   labs(title = "Different Combinations of MinCellCount and Ntrk2-Expression-Level Thresholds",
+#        x = "Subset by MinCellCount",
+#        y = "Number of Samples",
+#        fill = "Threshold and Percentage") +
+#   theme_minimal() +
+#   scale_fill_discrete(name = "Threshold and Percentage",
+#                       labels = c("0.1-5%", "0.1-10%", "0.1-15%", "0.1-20%",
+#                                  "1-5%", "1-10%", "1-15%", "1-20%"))
+# 
+# diff_thresholds
+# plot_and_save(diff_thresholds, "diff_thresholds_bar.png")
+# 
+# # Order the subsets
+# combined_results$Subset <- factor(combined_results$Subset, levels = c( "subset_750", "subset_1000", "subset_1200"))
+# 
+# # Filter to include only desired combinations
+# desired_combinations <- combined_results %>% filter(PercentageThreshold %in% c(5, 15) & Threshold %in% c(0.1, 1))
+# 
+# # Plot the results with both Threshold and Percentage Threshold
+# ggplot(desired_combinations, aes(x = Subset, fill = interaction(Threshold, PercentageThreshold))) +
+#   geom_bar(position = "dodge") +
+#   labs(title = "Combination of MinCellCount and Ntrk2-Expression-Level Thresholds",
+#        x = "Subset",
+#        y = "Number of Samples",
+#        fill = "Threshold and Percentage") +
+#   theme_minimal() +
+#   scale_fill_discrete(name = "Threshold and Percentage",
+#                       labels = c("0.1-5%", "0.1-15%", "1-5%", "1-15%"))
+
+```
+
+```{r}
+
+by_gene_0.1_50_500 <- filter_samples_by_gene_expression_O(subset_500, "Ntrk2", 0.1, 10, cell_types_of_interest)
+by_gene_1.0_50_500 <- filter_samples_by_gene_expression_O(subset_500, "Ntrk2", 1.0, 10, cell_types_of_interest)
+by_gene_0.1_80_500 <- filter_samples_by_gene_expression_O(subset_500, "Ntrk2", 0.1, 20, cell_types_of_interest)
+by_gene_1.0_80_500 <- filter_samples_by_gene_expression_O(subset_500, "Ntrk2", 1.0, 20, cell_types_of_interest)
+
+
+s_500_a <- subset_seurat_by_filtered_samples(subset_500, by_gene_0.1_50_500)
+s_500_b <- subset_seurat_by_filtered_samples(subset_500, by_gene_0.1_80_500)
+s_500_c <- subset_seurat_by_filtered_samples(subset_500, by_gene_1.0_50_500)
+s_500_d <- subset_seurat_by_filtered_samples(subset_500, by_gene_1.0_80_500)
+
+by_gene_0.1_50_750 <- filter_samples_by_gene_expression_O(subset_750, "Ntrk2", 0.1, 10, cell_types_of_interest)
+by_gene_1.0_50_750 <- filter_samples_by_gene_expression_O(subset_750, "Ntrk2", 1.0, 10, cell_types_of_interest)
+by_gene_0.1_80_750 <- filter_samples_by_gene_expression_O(subset_750, "Ntrk2", 0.1, 20, cell_types_of_interest)
+by_gene_1.0_80_750 <- filter_samples_by_gene_expression_O(subset_750, "Ntrk2", 0.3, 20, cell_types_of_interest)
+
+
+s_750_a <- subset_seurat_by_filtered_samples(subset_750, by_gene_0.1_50_750)
+s_750_b <- subset_seurat_by_filtered_samples(subset_750, by_gene_0.1_80_750)
+s_750_c <- subset_seurat_by_filtered_samples(subset_750, by_gene_1.0_50_750)
+s_750_d <- subset_seurat_by_filtered_samples(subset_750, by_gene_1.0_80_750)
+
+by_gene_0.1_50_1000 <- filter_samples_by_gene_expression_O(subset_1000, "Ntrk2", 0.1, 10, cell_types_of_interest)
+by_gene_1.0_50_1000 <- filter_samples_by_gene_expression_O(subset_1000, "Ntrk2", 0.3, 10, cell_types_of_interest)
+by_gene_0.1_80_1000 <- filter_samples_by_gene_expression_O(subset_1000, "Ntrk2", 0.1, 80, cell_types_of_interest)
+by_gene_1.0_80_1000 <- filter_samples_by_gene_expression_O(subset_1000, "Ntrk2", 1.0, 80, cell_types_of_interest)
+
+s_1000_a <- subset_seurat_by_filtered_samples(subset_1000, by_gene_0.1_50_1000)
+s_1000_b <- subset_seurat_by_filtered_samples(subset_1000, by_gene_0.1_80_1000)
+s_1000_c <- subset_seurat_by_filtered_samples(subset_1000, by_gene_1.0_50_1000)
+s_1000_d <- subset_seurat_by_filtered_samples(subset_1000, by_gene_1.0_80_1000)
+
+by_gene_0.1_50_1200 <- filter_samples_by_gene_expression_O(subset_1200, "Ntrk2", 0.1, 50, cell_types_of_interest)
+by_gene_1.0_50_1200 <- filter_samples_by_gene_expression_O(subset_1200, "Ntrk2", 1.0, 50, cell_types_of_interest)
+by_gene_0.1_80_1200 <- filter_samples_by_gene_expression_O(subset_1200, "Ntrk2", 0.1, 80, cell_types_of_interest)
+by_gene_1.0_80_1200 <- filter_samples_by_gene_expression_O(subset_1200, "Ntrk2", 1.0, 80, cell_types_of_interest)
+
+
+s_1200_a <- subset_seurat_by_filtered_samples(subset_1200, by_gene_0.1_50_1200)
+s_1200_b <- subset_seurat_by_filtered_samples(subset_1200, by_gene_1.0_50_1200)
+
+FeaturePlot(s_1000_a, features = "Ntrk2")
+
+
+#library(openxlsx)
+
+write_filtered_sample_ids_to_excel <- function(file_path, sample_ids_dict) {
+  wb <- createWorkbook()
+  
+  for (size in names(sample_ids_dict)) {
+    for (condition in names(sample_ids_dict[[size]])) {
+      sample_ids <- sample_ids_dict[[size]][[condition]]
+      if (length(sample_ids) > 0) {  # Check if the list of sample IDs is not empty
+        sheet_name <- paste(size, condition, sep = "_")
+        addWorksheet(wb, sheet_name)
+        data <- data.frame(SampleID = sample_ids)
+        data$Condition <- condition
+        writeData(wb, sheet = sheet_name, x = data)
+      }
+    }
+  }
+  
+  saveWorkbook(wb, file_path, overwrite = TRUE)
+}
+
+
+
+
+
+```
+
+```{r}
+
+# Function to convert the list to a data frame with sample size information
+convert_to_df <- function(data_list, sample_size, condition_names) {
+  df_list <- lapply(seq_along(data_list), function(i) {
+    df <- as.data.frame(data_list[[i]], stringsAsFactors = FALSE)
+    if (nrow(df) > 0) {
+      df$SampleSize <- sample_size
+      df$Condition <- condition_names[i]
+      df
+    } else {
+      NULL
+    }
+  })
+  df_combined <- do.call(rbind, df_list)
+  return(df_combined)
+}
+
+
+
+# Function to convert the list to a data frame with sample size information
+count_kept_samples <- function(data_list, min_cell_count, gene_expression_thresholds) {
+  counts <- sapply(data_list, function(x) length(x))
+  df <- data.frame(
+    GeneExpressionThresholds = gene_expression_thresholds,
+    MinCellCount = min_cell_count,
+    KeptSamples = counts,
+    stringsAsFactors = FALSE
+  )
+  return(df)
+}
+
+# Names of gene expression thresholds
+gene_expression_thresholds <- c("by_gene_0.1_50", "by_gene_1.0_50", "by_gene_0.1_80", "by_gene_1.0_80")
+
+# Count kept samples for each subset
+df_500 <- count_kept_samples(list(by_gene_0.1_50_500, by_gene_1.0_50_500, by_gene_0.1_80_500, by_gene_1.0_80_500), "500", gene_expression_thresholds)
+df_750 <- count_kept_samples(list(by_gene_0.1_50_750, by_gene_1.0_50_750, by_gene_0.1_80_750, by_gene_1.0_80_750), "750", gene_expression_thresholds)
+df_1000 <- count_kept_samples(list(by_gene_0.1_50_1000, by_gene_1.0_50_1000, by_gene_0.1_80_1000, by_gene_1.0_80_1000), "1000", gene_expression_thresholds)
+df_1200 <- count_kept_samples(list(by_gene_0.1_50_1200, by_gene_1.0_50_1200, by_gene_0.1_80_1200, by_gene_1.0_80_1200), "1200", gene_expression_thresholds)
+
+# Combine all data frames into one
+combined_df <- bind_rows(df_500, df_750, df_1000, df_1200)
+combined_df$MinCellCount <- factor(combined_df$MinCellCount, levels = c("500", "750", "1000", "1200"))
+
+print(combined_df)
+
+
+```
+
+```{r, Plotting}
+# Function to plot and save each condition
+
+# plot_and_save <- function(data, filename) {
+#   custom_labels <- c("by_gene_0.1_50" = "0.1 at 50%", "by_gene_1.0_50" = "1.0 at 50%", "by_gene_0.1_80" = "0.1 at 80%", "by_gene_1.0_80" = "1.0 at 80%")
+#   color_palette <- c("500" = "#66c2a5", "750" = "#fc8d62", "1000" = "#8da0cb", "1200" = "#e78ac3")
+#   p <- ggplot(data, aes(x = GeneExpressionThresholds, y = KeptSamples, fill = MinCellCount)) +
+#     scale_x_discrete(labels = custom_labels) +
+#     geom_bar(stat = "identity", position = "dodge") +
+#     theme_minimal() +
+#     labs(x = "Gene Expression Thresholds", y = "Number of Kept Samples")
+#      (axis.title.x = element_text(margin = margin(t = 10)))+
+#     theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1), legend.position = "bottom")
+#     
+#     scale_fill_manual(values = color_palette)
+#   
+#   ggsave(filename, plot = p, width = 10, height = 7)
+# }
+# 
+# # Plot and save the combined data
+# plot_and_save(combined_df, "combined_expression_plot.png")
+
+
+# Define custom labels and color palette
+custom_labels <- c("by_gene_0.1_50" = "0.1 at 50%", "by_gene_1.0_50" = "1.0 at 50%", "by_gene_0.1_80" = "0.1 at 80%", "by_gene_1.0_80" = "1.0 at 80%")
+color_palette <- c("500" = "#66c2a5", "750" = "#fc8d62", "1000" = "#C77CFF", "1200" = "steelblue")
+
+# Create the plot
+p <- ggplot(combined_df, aes(x = GeneExpressionThresholds, y = KeptSamples, fill = MinCellCount)) +
+  scale_x_discrete(labels = custom_labels) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  labs(
+    title = "Number of Kept Samples by Combined Thresholds of MinCellCount & Gene Expression Thresholds",
+    x = "Gene Expression Thresholds",
+    y = "Number of Kept Samples"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 60, vjust = 1, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 14),
+    legend.position = "bottom",
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    plot.title = element_text(size = 14, hjust = 0.5)
+  ) +
+  scale_fill_manual(values = color_palette)
+
+# Save the plot to a file
+ggsave("combined_expression_plot.png", plot = p, width = 10, height = 7, dpi = 300)
+
+
+
+plot_and_save <- function(data, filename) {
+  # Define custom labels
+  custom_labels <- c("by_gene_0.1_50" = "0.1 at 50%", "by_gene_1.0_50" = "1.0 at 50%", "by_gene_0.1_80" = "0.1 at 80%", "by_gene_1.0_80" = "1.0 at 80%")
+  
+  p <- ggplot(data, aes(x = GeneExpressionThresholds, y = KeptSamples, group = MinCellCount, color = MinCellCount)) +
+    geom_line() +
+    geom_point() +
+    theme_minimal() +
+    labs(x = "Gene Expression Thresholds", y = "Number of Kept Samples") +
+    scale_x_discrete(labels = custom_labels) +  
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust=1, size = 12),
+         axis.title.x = element_text(size = 16),
+         axis.text.y = element_text(size = 16),  
+         axis.title.y = element_text(size = 16),  
+         plot.title = element_text(size = 16),
+         legend.text = element_text(size = 16),
+         legend.title = element_text(size = 16),  
+         legend.position = "bottom")
+  
+  ggsave(filename, plot = p, width = 10, height = 7)
+}
+
+# Plot and save the combined data
+plot_and_save(combined_df, "combined_expression_plot_line.png")
+
+
+
+```
+
+
+```{r, Seurat subsetting}
+chosen_samples_11 <- c("10X26_3", "10X26_4", "10X52_2","10X22_3", "10X22_4", "10X24_1", 
+                    "10X52_1","10X52_3", "10X52_4", "10X57_2", "10X57_3")
+chosen_samples_3 <- c("10X26_3", "10X26_4", "10X52_2")
+
+eleven_samples_seurat <- subset(mouse_cortex_data, subset = SampleID %in% chosen_samples_11 & Class %in% cell_types_of_interest)
+
+three_samples_seurat <- subset(mouse_cortex_data, subset = SampleID %in% chosen_samples_3 & Class %in% cell_types_of_interest)
+
+ntrk2_expression_all <- FetchData(mouse_cortex_data, vars = "Ntrk2")
+non_zero_all <- sum(ntrk2_expression_all$Ntrk2 > 0)
+
+
+# mouse_cortex data to calculate expression in each cell type
+subset_Neurons_all <- subset(mouse_cortex_data, subset = Class == "Neurons")
+neurons_expression_all <- FetchData(subset_Neurons_all, vars = "Ntrk2")
+non_zero_N_all <- sum(neurons_expression_all[["Ntrk2"]] > 0)
+
+subset_Astrocytes_all <- subset(mouse_cortex_data, subset = Class == "Astrocytes")
+astro_expression_all <- FetchData(subset_Astrocytes_all, vars = "Ntrk2")
+non_zero_A_al <- sum(astro_expression_all[["Ntrk2"]] > 0)
+
+subset_Oligos_all <- subset(mouse_cortex_data, subset = Class == "Oligos")
+oligo_expression_all <- FetchData(subset_Oligos_all, vars = "Ntrk2")
+non_zero_O_all <- sum(oligo_expression_all[["Ntrk2"]] > 0)
+
+
+
+#subset of 11 samples to calculate expression in each cell type
+
+ntrk2_expression_11 <- FetchData(eleven_samples_seurat, vars = "Ntrk2")
+num_non_zero_11 <- sum(ntrk2_expression_11$Ntrk2 > 0)
+
+subset_Neurons_11 <- subset(eleven_samples_seurat, subset = Class == "Neurons")
+neurons_expression_11 <- FetchData(subset_Neurons_11, vars = "Ntrk2")
+non_zero_N_11 <- sum(neurons_expression_11[["Ntrk2"]] > 0)
+
+subset_Astrocytes_11 <- subset(eleven_samples_seurat, subset = Class == "Astrocytes")
+astro_expression_11 <- FetchData(subset_Astrocytes_11, vars = "Ntrk2")
+non_zero_A_11 <- sum(astro_expression_11[["Ntrk2"]] > 0)
+
+subset_Oligos_11 <- subset(eleven_samples_seurat, subset = Class == "Oligos")
+oligo_expression_11 <- FetchData(subset_Oligos_11, vars = "Ntrk2")
+non_zero_O_11 <- sum(oligo_expression_11[["Ntrk2"]] > 0)
+
+
+#subset of 3 samples to calculate expression in each cell type
+
+ntrk2_expression_3 <- FetchData(three_samples_seurat, vars = "Ntrk2")
+num_non_zero_3 <- sum(ntrk2_expression_3$Ntrk2 > 0)
+
+subset_Neurons_3 <- subset(three_samples_seurat, subset = Class == "Neurons")
+neurons_expression_3 <- FetchData(subset_Neurons_3, vars = "Ntrk2")
+non_zero_N_3 <- sum(neurons_expression_3[["Ntrk2"]] > 0)
+
+subset_Astrocytes_3 <- subset(three_samples_seurat, subset = Class == "Astrocytes")
+astro_expression_3 <- FetchData(subset_Astrocytes_3, vars = "Ntrk2")
+non_zero_A_3 <- sum(astro_expression_3[["Ntrk2"]] > 0)
+
+subset_Oligos_3 <- subset(three_samples_seurat, subset = Class == "Oligos")
+oligo_expression_3 <- FetchData(subset_Oligos_3, vars = "Ntrk2")
+non_zero_O_3 <- sum(oligo_expression_3[["Ntrk2"]] > 0)
+
+
+
+```
+
+```{r, fig.width=15, fig.height=8}
+
+datasets <- list(
+  mouse_cortex_data = mouse_cortex_data, 
+  eleven_samples_seurat = eleven_samples_seurat, 
+  three_samples_seurat = three_samples_seurat
+)
+
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+
+cell_count_table <- data.frame(Dataset = character(), CellType = character(), CellCount = integer(), stringsAsFactors = FALSE)
+
+for (dataset_name in names(datasets)) {
+  dataset <- datasets[[dataset_name]]
+  
+  for (cell_type in cell_types_of_interest) {
+    cell_type_info <- dataset@meta.data$Class 
+    cell_count <- sum(cell_type_info == cell_type)
+    cell_count_table <- rbind(
+      cell_count_table, 
+      data.frame(
+        Dataset = dataset_name, 
+        CellType = cell_type, 
+        CellCount = cell_count, 
+        stringsAsFactors = FALSE
+      )
+    )
+  }
+}
+
+print(cell_count_table)
+
+plot_cell_count <- ggplot(cell_count_table, aes(x = CellType, y = CellCount, fill = Dataset)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  theme_minimal() +
+  labs(title = "Cell Count of Different Cell Types in Different Subsets", x = "Cell Type", y = "Cell Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+# Set the levels of the Dataset factor in the desired order
+cell_count_table$Dataset <- factor(cell_count_table$Dataset, levels = c("mouse_cortex_data", "eleven_samples_seurat", "three_samples_seurat"))
+
+# Sort the data by Dataset and CellType
+cell_count_table <- cell_count_table %>% 
+  arrange(Dataset, CellType)
+# Complex bar plot with additional customization
+complex_plot_cell_count <- ggplot(cell_count_table, aes(x = CellType, y = CellCount, fill = Dataset)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  theme_minimal(base_size = 15) +
+  labs(title = "Cell Count of The Three Cell Types in Different Subsets", 
+       x = "Cell Type", 
+       y = "Cell Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 25),
+        axis.text.y = element_text(size = 25),
+        plot.title = element_text(hjust = 0.5, size = 30, face = "bold"),
+        axis.title.x = element_text(size = 30),
+        axis.title.y = element_text(size = 30),
+        strip.text = element_text(size = 27, face = "bold"),
+        legend.title = element_text(size = 27),
+        legend.text = element_text(size = 25)) +
+  scale_fill_brewer(palette = "Set2") +
+  geom_text(aes(label = CellCount), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.5, 
+            size = 8, 
+            color = "black") +
+  
+  facet_wrap(~ Dataset, scales = "free_x") +
+  guides(fill = guide_legend(title = "Dataset"))
+
+# Print the complex plot
+print(complex_plot_cell_count)
+
+ggsave(filename = "cell_count_bar_plot.png", plot = complex_plot_cell_count, width = 22, height = 11, dpi = 300)
+
+
+
+
+
+
+line_plot <- ggplot(cell_count_table, aes(x = CellType, y = CellCount, group = Dataset, color = Dataset)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Cell Count of Different Cell Types Across Datasets", x = "Cell Type", y = "Cell Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the line plot
+print(line_plot)
+
+# mouse_cortex_counts <- cell_count_table %>% filter(Dataset == "mouse_cortex_data") %>% select(CellType, MouseCortexCount = CellCount)
+# cell_count_table <- cell_count_table %>% 
+#   left_join(mouse_cortex_counts, by = "CellType") %>% 
+#   mutate(Proportion = CellCount / MouseCortexCount)
+# 
+# # Print the resulting table
+# print(cell_count_table)
+
+# Plot Proportions
+proportion_plot <- ggplot(cell_count_table, aes(x = CellType, y = Proportion, group = Dataset, color = Dataset)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Proportion of Cell Types in Subsets Relative to Mouse Cortex", x = "Cell Type", y = "Proportion Relative to Mouse Cortex") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the proportion plot
+print(proportion_plot)
+```
+```{r}
+
+
+
+```
+
+```{r}
+ages <- three_samples_seurat@meta.data$Age[]
+ages
+
+# Remove the 'p' character and convert to numeric
+numeric_ages <- as.numeric(sub("p", "", ages))
+
+age_summary <- table(numeric_ages)
+
+# Convert the result to a data frame
+age_summary_df <- as.data.frame(age_summary)
+colnames(age_summary_df) <- c("Age", "Count")
+
+# Print the summary
+print(age_summary_df)
+
+
+```
+
+```{r}
+tissues <- three_samples_seurat@meta.data$Tissue
+table(tissues)
+
+tis <- mouse_cortex_data@meta.data$Tissue
+table(tis)
+```
+
+```{r}
+sex <- three_samples_seurat@meta.data$Sex
+table(sex)
+
+
+sex_all <- mouse_cortex_data@meta.data$Sex
+table(sex_all)
+
+```
+
+```{r}
+
+# Initialize a data frame to store the results
+non_zero_table <- data.frame(
+  Dataset = character(), 
+  CellType = character(), 
+  NonZeroCount = numeric(), 
+  stringsAsFactors = FALSE
+)
+
+count_non_zero_expressions <- function(dataset, dataset_name, cell_type) {
+  subset_seurat_object <- subset(dataset, subset = Class == cell_type)
+  
+  gene_expression <- FetchData(subset_seurat_object, vars = "Ntrk2")
+  
+  num_non_zero <- sum(gene_expression[["Ntrk2"]] > 0)
+  
+  # Add the result to the table
+  non_zero_table <<- rbind(
+    non_zero_table, 
+    data.frame(
+      Dataset = dataset_name, 
+      CellType = cell_type, 
+      NonZeroCount = num_non_zero, 
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+# Define datasets, names, and cell types
+datasets <- list(
+  mouse_cortex_data = "mouse_cortex_data", 
+  
+  samples_seurat = "eleven_samples_seurat", 
+ 
+  three_samples_seurat = "three_samples_seurat"
+)
+
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+
+# Loop through each dataset and cell type to count non-zero expressions
+for (dataset_name in names(datasets)) {
+  dataset <- get(dataset_name)
+  
+  # Total non-zero expressions for the entire dataset
+  ntrk2_expression <- FetchData(dataset, vars = "Ntrk2")
+  num_non_zero <- sum(ntrk2_expression$Ntrk2 > 0)
+  non_zero_table <- rbind(
+    non_zero_table, 
+    data.frame(
+      Dataset = dataset_name, 
+      CellType = "Total", 
+      NonZeroCount = num_non_zero, 
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  for (cell_type in cell_types_of_interest) {
+    count_non_zero_expressions(dataset, dataset_name, cell_type)
+  }
+}
+
+# Calculate percentage for each cell type within each dataset
+non_zero_table <- non_zero_table %>%
+  group_by(Dataset) %>%
+  mutate(Percentage = (NonZeroCount / NonZeroCount[CellType == "Total"]) * 100)
+
+# Print the resulting table
+print(non_zero_table)
+
+# Plot Non-Zero Count
+plot_non_zero <- ggplot(non_zero_table, aes(x = CellType, y = NonZeroCount, fill = Dataset)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  theme_minimal() +
+  labs(title = "Non-Zero Count of Ntrk2 Expression", x = "Cell Type", y = "Non-Zero Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the Non-Zero Count plot
+print(plot_non_zero)
+
+# Plot Percentage
+plot_percentage <- ggplot(non_zero_table, aes(x = CellType, y = Percentage, fill = Dataset)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  theme_minimal() +
+  labs(title = "Percentage of Non-Zero Ntrk2 Expression", x = "Cell Type", y = "Percentage") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the Percentage plot
+print(plot_percentage)
+# write_xlsx(non_zero_table, "non_zero_expression.xlsx")
+
+```
+
+
+
+```{r, fig.width=15, fig.height=8}
+## write all that into a function 
+
+# Initialize a data frame to store the results
+non_zero_table <- data.frame(
+  Dataset = character(), 
+  CellType = character(), 
+  NonZeroCount = numeric(), 
+  stringsAsFactors = FALSE
+)
+
+count_non_zero_expressions <- function(dataset, dataset_name, cell_type) {
+  subset_seurat_object <- subset(dataset, subset = Class == cell_type)
+  
+  gene_expression <- FetchData(subset_seurat_object, vars = "Ntrk2")
+  
+  num_non_zero <- sum(gene_expression[["Ntrk2"]] > 0)
+  
+  # Add the result to the table
+  non_zero_table <<- rbind(
+    non_zero_table, 
+    data.frame(
+      Dataset = dataset_name, 
+      CellType = cell_type, 
+      NonZeroCount = num_non_zero, 
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+# Define datasets, names, and cell types
+datasets <- list(
+  mouse_cortex_data = mouse_cortex_data, 
+  eleven_samples_seurat = eleven_samples_seurat, 
+  three_samples_seurat = three_samples_seurat
+)
+
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+
+# Loop through each dataset and cell type to count non-zero expressions
+for (dataset_name in names(datasets)) {
+  dataset <- datasets[[dataset_name]]
+  
+  # Total non-zero expressions for the entire dataset
+  ntrk2_expression <- FetchData(dataset, vars = "Ntrk2")
+  num_non_zero <- sum(ntrk2_expression$Ntrk2 > 0)
+  non_zero_table <- rbind(
+    non_zero_table, 
+    data.frame(
+      Dataset = dataset_name, 
+      CellType = "Total", 
+      NonZeroCount = num_non_zero, 
+      stringsAsFactors = FALSE
+    )
+  )
+  
+  for (cell_type in cell_types_of_interest) {
+    count_non_zero_expressions(dataset, dataset_name, cell_type)
+  }
+}
+
+# Calculate percentage for each cell type within each dataset
+non_zero_table <- non_zero_table %>%
+  group_by(Dataset) %>%
+  mutate(Percentage = (NonZeroCount / NonZeroCount[CellType == "Total"]) * 100)
+
+# Convert Dataset and CellType to factors for better plotting
+non_zero_table$Dataset <- factor(non_zero_table$Dataset, levels = c("mouse_cortex_data", "eleven_samples_seurat", "three_samples_seurat"))
+non_zero_table$CellType <- factor(non_zero_table$CellType, levels = c("Total", "Neurons", "Astrocytes", "Oligos"))
+
+# Print the resulting table
+print(non_zero_table)
+
+# Plot Non-Zero Count as a line plot
+plot_non_zero <- ggplot(non_zero_table, aes(x = CellType, y = NonZeroCount, color = Dataset, group = Dataset)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Cell-Count with Non-Zero Ntrk2 Expression", x = "Cell Type", y = "Non-Zero Count") +
+  theme( axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+         axis.title.x = element_text(size = 22),
+         axis.text.y = element_text(size = 18),  
+         axis.title.y = element_text(size = 22),  
+         plot.title = element_text(size = 22),
+         legend.text = element_text(size = 22),
+         legend.title = element_text(size = 22)
+  )
+
+# Print the Non-Zero Count line plot
+print(plot_non_zero)
+
+# Plot Percentage as a line plot
+plot_percentage <- ggplot(non_zero_table, aes(x = CellType, y = Percentage, color = Dataset, group = Dataset)) +
+  geom_line() +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(title = "Percentage of Cells with Non-Zero Ntrk2 Expression", x = "Cell Type", y = "Percentage") +
+  theme( axis.text.x = element_text(angle = 45, hjust = 1, size = 18),
+         axis.title.x = element_text(size = 22),
+         axis.text.y = element_text(size = 18),  
+         axis.title.y = element_text(size = 22),  
+         plot.title = element_text(size = 22),
+         legend.text = element_text(size = 22),
+         legend.title = element_text(size = 22)
+  )
+
+# Print the Percentage line plot
+print(plot_percentage)
+
+
+```
+
+
+```{r, Ntrk2 expression, fig.height= 8, fig.width= 15}
+featureplot_all <- FeaturePlot(mouse_cortex_data, features = "Ntrk2", cols = c("lightgrey", "blue"), raster=FALSE)+
+                               theme_minimal()+
+                               theme(
+                               axis.text = element_text(size = 18),
+                               axis.title = element_text(size = 20),
+                               legend.text = element_text(size = 16),
+                               legend.title = element_text(size = 20),
+                               plot.title = element_text(size = 22)
+                               )         
+
+
+
+featureplot_11 <- FeaturePlot(eleven_samples_seurat, features = "Ntrk2", cols = c("lightgrey", "blue"), raster = FALSE)+
+                               theme_minimal()+
+                               theme(
+                               axis.text = element_text(size = 18),
+                               axis.title = element_text(size = 20),
+                               legend.text = element_text(size = 16),
+                               legend.title = element_text(size = 20),
+                               plot.title = element_text(size = 22)
+                               )         
+                    
+
+
+featureplot_3 <- FeaturePlot(three_samples_seurat, features = "Ntrk2", cols = c("lightgrey", "blue"), raster = FALSE)+
+                               theme_minimal()+
+                               theme(
+                               axis.text = element_text(size = 18),
+                               axis.title = element_text(size = 20),
+                               legend.text = element_text(size = 16),
+                               legend.title = element_text(size = 20),
+                               plot.title = element_text(size = 22)
+                               )         
+                    
+
+vln_3 <- VlnPlot(three_samples_seurat, features = "Ntrk2", group.by = "Class")+
+  labs(title = "Ntrk2 Expression within the three-sample subset")+ 
+  theme_minimal()+
+  theme(
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 20),
+    plot.title = element_text(size = 22)
+  )         
+
+vln_11 <- VlnPlot(eleven_samples_seurat, features = "Ntrk2", group.by = "Class")+
+    labs(title = "Ntrk2 Expression within the eleven-sample subset")+ 
+
+    theme_minimal()+
+    theme(
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 20),
+    plot.title = element_text(size = 22)
+  )         
+
+mouse_cortex_data_cOi <- subset(mouse_cortex_data, Class%in%cell_types_of_interest)
+
+vln_all_cOi <- VlnPlot(mouse_cortex_data_cOi, features = "Ntrk2", group.by = "Class")+
+    labs(title = "Ntrk2 Expression by the cells of interest within the entire dataset")+ 
+
+  theme_minimal()+
+theme(
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 20),
+    plot.title = element_text(size = 22)
+  )         
+
+vln_all <- VlnPlot(mouse_cortex_data, features = "Ntrk2", group.by = "Class")+
+     labs(title = "Ntrk2 Expression by all cell types within the entire dataset")+ 
+
+  theme_minimal()+
+theme(
+    axis.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 20),
+    plot.title = element_text(size = 22)
+  )         
+Dimplot_ <- DimPlot(mouse_cortex_data, group.by = "Class", label = TRUE, repel = TRUE, raster = FALSE, label.size = 8) +
+  theme(
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 19),
+    legend.title = element_text(size = 18),
+    plot.title = element_text(size = 18, hjust = 0.5),
+    plot.subtitle = element_text(size = 18),
+    legend.key.size = unit(3, "lines")  # Increase size of legend keys
+  ) +
+  ggtitle("DimPlot of Mouse Cortex Data")
+ 
+
+featureplot_all
+featureplot_11
+featureplot_3
+Dimplot_
+
+vln_3
+vln_11
+vln_all
+vln_all_cOi
+```
+
+```{r, Scaling cell count}
+
+# Function to scale the cell counts
+scale_cell_counts <- function(cell_counts, neuron_scale, astrocyte_scale, oligo_scale) {
+  cell_counts %>%
+    dplyr::mutate(
+      ScaledCount = dplyr::case_when(
+        Class == "Neurons" ~ CellCount * neuron_scale,
+        Class == "Astrocytes" ~ CellCount * astrocyte_scale,
+        Class == "Oligos" ~ CellCount * oligo_scale,
+        TRUE ~ CellCount
+      )
+    )
+}
+
+# Main filtering function with scaling included
+filter_cells_by_min_count <- function(data, min_astrocyte_count, min_neuron_count, min_oligo_count) {
+  # Summarize cell counts by SampleID and Class
+  cell_counts <- data@meta.data %>%
+    dplyr::group_by(SampleID, Class) %>%
+    dplyr::summarise(CellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+  
+  # Calculate scaling factors (example values, adjust based on actual proportions)
+  neuron_scale <- 1
+  astrocyte_scale <- 0.6
+  oligo_scale <- 0.4
+  
+  # Apply scaling to the cell counts
+  scaled_cell_counts <- scale_cell_counts(cell_counts, neuron_scale, astrocyte_scale, oligo_scale)
+  
+  # Define cell-type-specific minimum counts after scaling
+  min_counts <- list(Astrocytes = min_astrocyte_count, Neurons = min_neuron_count, Oligos = min_oligo_count)
+  
+  # Initialize a list to store SampleIDs that meet the criteria for each cell type
+  valid_sample_ids <- list()
+  
+  # Check each cell type with scaled counts
+  for (cell_type in names(min_counts)) {
+    ids <- scaled_cell_counts %>%
+      dplyr::filter(Class == cell_type & ScaledCount >= min_counts[[cell_type]]) %>%
+      dplyr::select(SampleID) %>%
+      dplyr::distinct() %>%
+      pull(SampleID)
+    
+    if (length(ids) == 0) {
+      cat(sprintf("No samples have the defined minimum count of %d for %s.\n", min_counts[[cell_type]], cell_type))
+    } else {
+      valid_sample_ids[[cell_type]] <- ids
+    }
+  }
+  
+  # Check if there are any SampleIDs that meet the criteria for all specified cell types
+  if (length(valid_sample_ids) < length(min_counts)) {
+    cat("Some cell types did not meet the minimum cell count criteria.\n")
+    return(NULL)
+  }
+  
+  # Find common SampleIDs across all cell types
+  samples_to_keep <- Reduce(intersect, valid_sample_ids)
+  
+  # Check if any samples meet the criteria
+  if (length(samples_to_keep) == 0) {
+    cat("No samples meet the minimum cell count across all specified cell types.\n")
+    return(NULL)
+  }
+  
+  # Subset the Seurat object to include only cells from the samples that meet the criteria
+  seurat_subset <- subset(data, subset = SampleID %in% samples_to_keep)
+  
+  # Verify if subset is empty
+  if (seurat_subset@meta.data %>% nrow() == 0) {
+    cat("The resulting subset of the data has no cells. Check the filtering criteria.\n")
+    return(NULL)
+  }
+  
+  # Cell Type per sample
+  target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+  print(target_cell_counts_by_sample)
+  
+  # Convert the table to a data frame for plotting
+  target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+  names(target_counts_df) <- c("Sample", "CellType", "Count")
+  target_counts_df <- target_counts_df %>%
+    dplyr::filter(CellType %in% c("Astrocytes", "Oligos", "Neurons"))
+  
+  return(target_counts_df)
+}
+
+
+
+```
+
+
+
+
+

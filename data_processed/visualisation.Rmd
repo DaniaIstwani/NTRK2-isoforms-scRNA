@@ -1,0 +1,49 @@
+---
+title: "visulisation"
+output: html_document
+date: '2024-05-02'
+---
+```{r setup, include=FALSE}
+source("/data/gpfs/projects/punim2183/data_processed/my_functions.R")
+
+```
+
+```{r}
+# To save the entire workspace:
+save.image(file = "my_workspace.RData")
+load("my_workspace.RData")
+
+#clear env:
+# rm(list = ls())
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+
+```{r}
+# # Assuming the data frame is already in your R environment as metadata_2
+# metadata_2_df <- as.data.frame(metadata_2)
+# 
+# 
+# # Convert Age to a factor for plotting (if it's not already)
+# metadata_2_df$Age <- factor(metadata_2$Age, levels = unique(metadata_2$Age))
+# 
+# ggplot(metadata_2, aes(x = Age, y = Tissue, color = Sex)) +
+#   geom_point(aes(size = 3)) + # Adjust size for better visibility
+#   theme_minimal() +
+#   labs(title = "Distribution of Samples by Age and Tissue",
+#        x = "Age",
+#        y = "Tissue",
+#        color = "Sex") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) # Adjust text angle for x-axis labels
+# 
+
+
+```

@@ -1,0 +1,1061 @@
+---
+title: "data filtering"
+output: html_document
+date: '2024-04-08'
+---
+```{r}
+# To save the entire workspace:
+save.image(file = "my_workspace.RData")
+load("my_workspace.RData")
+
+#clear env:
+# rm(list = ls())
+
+```
+
+```{r}
+library(SeuratObject)
+library(SeuratDisk)
+library(Seurat)
+library(cowplot)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(DT)
+library(tidyr)
+library(CSCORE)
+library(foreach)
+library(doParallel)
+library(pheatmap)
+library(writexl)
+library(DESeq2)
+library(GEOquery)
+library(gridExtra)
+
+
+```
+
+```{r}
+#loom_data <- SeuratDisk::Connect(filename = "/data/gpfs/projects/punim2183/data_processed/l5_All.loom", mode = 'r')
+#mouse_cortex_data <- as.Seurat(loom_data)
+#saveRDS(mouse_cortex_data, file = '/data/gpfs/projects/punim2183/data_processed/mouse_cortex_data.rds')
+
+mouse_cortex_data <- readRDS("/data/gpfs/projects/punim2183/data_processed/mouse_cortex_scRNAseq.rds")
+
+mouse_cortex_data <- NormalizeData(mouse_cortex_data) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+
+mouse_cortex_data <- RunUMAP(mouse_cortex_data, reduction = 'pca', dims = 1:10, assay = 'RNA', 
+                             reduction.name = "rna_umap", reduction.key = "RNA_umap_")
+
+```
+
+```{r}
+
+ntrk2_expr <- FetchData(mouse_cortex_data, vars = c("Ntrk2", "Tissue", "SampleID"))
+
+ntrk2_tissue <- ntrk2_expr %>% group_by(Tissue) %>%
+  arrange(desc(ntrk2_tissue))
+ntrk2_tissue
+
+# mean expression of Ntrk2 per tissue
+ntrk2_tissue_avg <- ntrk2_expr %>%
+  group_by(Tissue) %>%
+  summarise(
+    avg_expression = mean(Ntrk2, na.rm = TRUE)
+  ) %>%
+    arrange(desc(avg_expression))
+
+ntrk2_tissue_avg
+
+tissues <- unique(mouse_cortex_data@meta.data$Tissue)
+print(tissues)
+
+# Step 1: Calculate average expression of Ntrk2 per tissue
+avg_expression <- AverageExpression(mouse_cortex_data, features = "Ntrk2", group.by = "Tissue")
+
+# Step 2: Extract the Ntrk2 expression values from the result and sort them
+avg_expression_values <- avg_expression$RNA[,] 
+avg_expression_values
+sorted_tissues <- sort(avg_expression_values, decreasing = TRUE)  # Sort in descending order
+
+# Step 3: Get the top 5 tissues
+top_10_tissues <- head(sorted_tissues, 10)
+
+# Step 4: Plot the result using a bar plot
+barplot(top_10_tissues, 
+        names.arg = names(top_10_tissues),  # Use the tissue names as labels
+        main = "Top 10 Tissues by Ntrk2 Expression", 
+        ylab = "Average Ntrk2 Expression", 
+        col = "skyblue", las = 2)  # Rotate labels for clarity
+
+selected_samples <- unique(mouse_cortex_data@meta.data$SampleID[mouse_cortex_data@meta.data$Tissue %in% c("Ctx1.5","Ctx3", "Ctx2", "Ctx1", "CA1", "Hypoth", "HC")])
+
+print(selected_samples)
+length(selected_samples)
+
+```
+## CS-CORE:
+
+```{r}
+cortex_Astrocytes = mouse_cortex_data[,mouse_cortex_data@meta.data$Class %in% 'Astrocytes']
+
+# summary(rowMeans(cortex_Astrocytes@assays$RNA@counts))  # Skewed expression distribution
+#     Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
+#  0.00000   0.00000   0.00107   0.05220   0.02868 134.82726 
+
+
+min_cells = round(0.1 * ncol(cortex_Astrocytes))  # 10% of total cells
+expressed_genes = rowSums(cortex_Astrocytes@assays$RNA@counts > 0) >= min_cells
+cortex_Astrocytes = cortex_Astrocytes[expressed_genes, ]
+
+cortex_Astrocytes <- FindVariableFeatures(cortex_Astrocytes, selection.method = "vst", nfeatures = 5000)
+genes_selected <- VariableFeatures(cortex_Astrocytes)
+
+log_counts <- log1p(cortex_Astrocytes@assays$RNA@counts)
+mean_exp = rowMeans(log_counts)
+
+cor_matrix <- cor(t(log_counts[genes_selected, ]), method = "spearman")
+
+powers = c(4, 6, 8, 10, 12)
+sft = WGCNA::pickSoftThreshold(abs(cor_matrix), powerVector = powers, verbose = 5)
+
+adj = WGCNA::adjacency.fromSimilarity(abs(cor_matrix), power = 12)
+
+memb = dynamicTreeCut::cutreeDynamic(
+    dendro = hclust_dist, 
+    distM = dissTOM, 
+    deepSplit = 4, 
+    pamRespectsDendro = TRUE, 
+    minClusterSize = 5
+)
+
+
+pheatmap(cor_matrix,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "average",
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         main = "Gene-Gene Correlation Heatmap")
+```
+
+```{r}
+
+mean_exp = rowMeans(cortex_Astrocytes@assays$RNA@counts/cortex_Astrocytes$nCount_RNA)
+genes_selected = names(sort.int(mean_exp, decreasing = T))[1:5000] # select top 5000 genes out of the 27998
+
+
+CSCORE_result <- CSCORE(cortex_Astrocytes, genes = genes_selected)
+# Obtain CS-CORE co-expression estimates
+CSCORE_coexp <- CSCORE_result$est
+
+# Obtain BH-adjusted p values
+CSCORE_p <- CSCORE_result$p_value
+p_matrix_BH = matrix(0, length(genes_selected), length(genes_selected))
+p_matrix_BH[upper.tri(p_matrix_BH)] = p.adjust(CSCORE_p[upper.tri(CSCORE_p)], method = "BH")
+p_matrix_BH <- p_matrix_BH + t(p_matrix_BH)
+
+# Set co-expression entires with BH-adjusted p-values greater than 0.05 to 0
+CSCORE_coexp[p_matrix_BH > 0.05] <- 0
+
+
+
+if (!require(WGCNA)) {
+  install.packages("WGCNA")
+  library(WGCNA)
+}else{
+  library(WGCNA)
+}
+
+
+# Compute the adjacency matrix based on the co-expression matrix
+adj = WGCNA::adjacency.fromSimilarity(abs(CSCORE_coexp), power = 1)
+
+# Compute the topological overlap matrix
+TOM = WGCNA::TOMsimilarity(adj)
+dissTOM = 1-TOM
+rownames(dissTOM) <- colnames(dissTOM) <- genes_selected
+
+# Run hierarchical clustering as in the WGCNA workflow
+hclust_dist = hclust(as.dist(dissTOM), method = "average") 
+memb = dynamicTreeCut::cutreeDynamic(dendro = hclust_dist, 
+                     distM = dissTOM, 
+                     deepSplit = 2,
+                     pamRespectsDendro = FALSE,
+                     minClusterSize = 10)
+
+# For more instructions on how to tune the parameters in the WGCNA workflow,
+# please refer to https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/Tutorials/
+
+names(memb) = genes_selected
+memb_tab <- table(memb)
+module_list = lapply(sort(unique(memb)), function(i_k) names(which(memb == i_k)))
+
+
+barplot(memb_tab, 
+        main = "Module Membership", 
+        xlab = "Module", 
+        ylab = "Number of Genes", 
+        col = rainbow(length(memb_tab)))
+
+
+
+# Heatmap of the TOM
+pheatmap(TOM, 
+         cluster_rows = hclust_dist, 
+         cluster_cols = hclust_dist, 
+         show_rownames = FALSE, 
+         show_colnames = FALSE, 
+         main = "Topological Overlap Matrix")
+
+
+library(dendextend)
+
+# Plot the dendrogram
+dend <- as.dendrogram(hclust_dist)
+plot(dend, main = "Hierarchical Clustering Dendrogram")
+
+
+```
+
+
+
+
+creating a seurat object with a minimum number of cells of each type of interest
+
+```{r}
+# keep samples with a certain number of Astrocytes, Neurons and Oligos as well
+min_astrocyte_count <- 200 
+min_neuron_count <- 200  # define the minimum for Neurons
+min_oligo_count <- 200   # define the minimum for Oligos
+
+# Summarize cell counts by SampleID and Class
+cell_counts <- mouse_cortex_data@meta.data %>%
+  group_by(SampleID, Class) %>%
+  summarise(CellCount = n(), .groups = 'drop')
+as.data.frame(cell_counts)
+
+# Filter the samples with the minimum number of Cells of interest
+astrocyte_counts <- cell_counts %>%
+  filter(Class == 'Astrocytes' & CellCount >= min_astrocyte_count) %>%
+  select(SampleID)  
+
+sum(table(astrocyte_counts))
+
+neuron_counts <- cell_counts %>%
+  filter(Class == 'Neurons' & CellCount >= min_neuron_count) %>%
+  select(SampleID)
+
+sum(table(neuron_counts))
+
+oligo_counts <- cell_counts %>%
+  filter(Class == 'Oligos' & CellCount >= min_oligo_count) %>%
+  select(SampleID)
+
+sum(table(oligo_counts))
+
+# Combine the filters to get a list of SampleIDs to keep
+samples_to_keep <- Reduce(intersect, list(astrocyte_counts$SampleID, neuron_counts$SampleID, oligo_counts$SampleID))
+
+# Subset the Seurat object to include only cells from the samples that meet the criteria
+seurat_subset <- subset(mouse_cortex_data, subset = SampleID %in% samples_to_keep)
+
+# Cell Type per sample
+target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+print(target_cell_counts_by_sample)
+
+# Convert the table to a data frame for plotting
+target_counts_df1 <- as.data.frame(target_cell_counts_by_sample)
+names(target_counts_df1) <- c("Sample", "CellType", "Count")
+
+target_counts_df_200 <- target_counts_df1 %>% 
+                    filter(CellType %in% c("Astrocytes", "Oligos", "Neurons"))
+
+
+# Create a bar plot
+ggplot(target_counts_df_200, aes(x = Sample, y = Count, fill = CellType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=0.5),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Counts by Sample and Type")
+
+# stacked chart: 
+
+ggplot(target_counts_df, aes(x = Sample, y = Count, fill = CellType)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Type Frequencies by Sample")
+
+
+
+```
+
+
+Filter cells by minimum count function:
+```{r}
+
+filter_cells_by_min_count <- function(data, min_astrocyte_count=200, min_neuron_count=200, min_oligo_count=200) {
+  # Summarize cell counts by SampleID and Class
+  cell_counts <- data@meta.data %>%
+    dplyr::group_by(SampleID, Class) %>%
+    dplyr::summarise(CellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+
+  # Define cell-type-specific minimum counts
+  min_counts <- list(Astrocytes = min_astrocyte_count, Neurons = min_neuron_count, Oligos = min_oligo_count)
+
+  # Initialize a list to store SampleIDs that meet the criteria for each cell type
+  valid_sample_ids <- list()
+
+  # Check each cell type
+  for (cell_type in names(min_counts)) {
+    ids <- cell_counts %>%
+      dplyr::filter(Class == cell_type & CellCount >= min_counts[[cell_type]]) %>%
+      dplyr::select(SampleID) %>%
+      dplyr::distinct() %>%
+      pull(SampleID)
+
+    if (length(ids) == 0) {
+      cat(sprintf("No samples have the defined minimum count of %d for %s.\n", min_counts[[cell_type]], cell_type))
+    } else {
+      valid_sample_ids[[cell_type]] <- ids
+    }
+  }
+
+  # Check if there are any SampleIDs that meet the criteria for all specified cell types
+  if (length(valid_sample_ids) < length(min_counts)) {
+    cat("Some cell types did not meet the minimum cell count criteria.\n")
+    return(NULL)
+  }
+
+  # Find common SampleIDs across all cell types
+  samples_to_keep <- Reduce(intersect, valid_sample_ids)
+
+  # Check if any samples meet the criteria
+  if (length(samples_to_keep) == 0) {
+    cat("No samples meet the minimum cell count across all specified cell types.\n")
+    return(NULL)
+  }
+
+  # Subset the Seurat object to include only cells from the samples that meet the criteria
+  seurat_subset <- subset(data, subset = SampleID %in% samples_to_keep)
+
+  # Verify if subset is empty
+  if (seurat_subset@meta.data %>% nrow() == 0) {
+    cat("The resulting subset of the data has no cells. Check the filtering criteria.\n")
+    return(NULL)
+  }
+
+  # Cell Type per sample
+  target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+  print(target_cell_counts_by_sample)
+
+  # Convert the table to a data frame for plotting
+  target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+  names(target_counts_df) <- c("Sample", "CellType", "Count")
+  target_counts_df <- target_counts_df %>%
+                      dplyr::filter(CellType %in% c("Astrocytes", "Oligos", "Neurons"))
+
+  return(target_counts_df)
+}
+
+
+```
+
+
+```{r}
+
+filter_cells_by_uniform_min_count <- function(data, min_cell_count=200) {
+  # Summarize cell counts by SampleID and Class
+  cell_counts <- data@meta.data %>%
+    dplyr::group_by(SampleID, Class) %>%
+    dplyr::summarise(CellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+
+  # Check each cell type and gather valid SampleIDs
+  cell_types <- c("Astrocytes", "Neurons", "Oligos")
+  valid_sample_ids <- lapply(cell_types, function(cell_type) {
+    ids <- cell_counts %>%
+      dplyr::filter(Class == cell_type & CellCount >= min_cell_count) %>%
+      dplyr::select(SampleID) %>%
+      dplyr::distinct() %>%
+      pull(SampleID)
+    
+    if (length(ids) == 0) {
+      cat(sprintf("No samples have the defined minimum count of %d for %s.\n", min_cell_count, cell_type))
+    }
+    ids
+  })
+
+  # Reduce to find common SampleIDs that meet criteria for all cell types
+  valid_sample_ids <- Reduce(intersect, valid_sample_ids)
+
+  # If no SampleIDs are valid across all specified cell types
+  if (length(valid_sample_ids) == 0) {
+    cat("No samples meet the minimum cell count across all specified cell types.\n")
+    return(NULL)
+  }
+
+  # Subset the Seurat object to include only cells from the samples that meet the criteria
+  seurat_subset <- subset(data, subset = SampleID %in% valid_sample_ids)
+
+  # Verify if subset is empty
+  if (seurat_subset@meta.data %>% nrow() == 0) {
+    cat("The resulting subset of the data has no cells. Check the filtering criteria.\n")
+    return(NULL)
+  }
+
+  # Cell Type per sample
+  target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+  print(target_cell_counts_by_sample)
+
+  # Convert the table to a data frame for plotting
+  target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+  names(target_counts_df) <- c("Sample", "CellType", "Count")
+  target_counts_df <- target_counts_df %>%
+                      dplyr::filter(CellType %in% cell_types)
+
+  return(target_counts_df)
+}
+
+
+
+
+filter_cells_by_uniform_min_count(mouse_cortex_data, 50)
+
+```
+function that takes one minimum number of cell counts for all celltypes:
+```{r}
+filter_cells_by_uniform_min_count <- function(data, min_cell_count=200) {
+  # Summarize cell counts by SampleID and Class
+  cell_counts <- data@meta.data %>%
+    group_by(SampleID, Class) %>%
+    summarise(CellCount = n(), .groups = 'drop') %>%
+    as.data.frame()
+
+  # Filter for cell types based on the uniform minimum count
+  valid_sample_ids <- cell_counts %>%
+    filter(CellCount >= min_cell_count & Class %in% c("Astrocytes", "Neurons", "Oligos")) %>%
+    group_by(SampleID) %>%
+    filter(n() == 3) %>%  # Ensure all three types meet the minimum count
+    ungroup() %>%
+    select(SampleID) %>%
+    distinct()
+
+  # Subset the Seurat object to include only cells from the samples that meet the criteria
+  seurat_subset <- subset(data, subset = SampleID %in% valid_sample_ids$SampleID)
+
+  # Cell Type per sample
+  target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+  print(target_cell_counts_by_sample)
+
+  # Convert the table to a data frame for plotting
+  target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+  names(target_counts_df) <- c("Sample", "CellType", "Count")
+  target_counts_df <- target_counts_df %>%
+                      filter(CellType %in% c("Astrocytes", "Oligos", "Neurons"))
+
+  return(target_counts_df)
+}
+
+
+```
+
+level of gene expression in those samples/ cells of interest (violin plot), filter out some samples on that basis.
+
+```{r}
+
+Idents(seurat_subset) <- seurat_subset$Class
+
+# List all the identities in the Seurat object
+levels(Idents(seurat_subset))
+
+Violn_plot <- VlnPlot(seurat_subset, features = "Ntrk2", group.by = 'Class', idents = c("Neurons","Astrocytes", "Oligos"), sort = TRUE, pt.size = 0.1) + ylim(c(0,5))+ NoLegend()
+Violn_plot
+
+
+# Ntrk2 expression
+
+ntrk2_expression <- FetchData(seurat_subset, vars = "Ntrk2")
+ntrk2_expression
+
+```
+
+Im using this filtration to intersect it with tissue specific Ntrk2 expression: (common samples)
+
+selected_samples: taking average expression of the Ntrk2 gene across different tissues, and get the top 10 tissues with the highest expression. After that, selected samples that belong to specific tissues (such as Ctx1.5, Ctx3, Ctx2, Ctx1, CA1, Hypoth, HC) and stored them in selected_samples.
+
+samples_to_keep:
+Threshold: The minimum expression level of the gene that we are interested in (0.8 in this case).
+Percentage Threshold: The percentage of cells in a sample that must have an expression level above the threshold to keep the sample (50% in this case).
+Cell Types of Interest: The cell types you are focusing on (Neurons, Astrocytes, and Oligos).
+
+
+The common_samples represent the subset of sample IDs that are both part of the selected_samples (from specific tissue types like Ctx1.5, Ctx3, Ctx2, Ctx1, CA1, Hypoth, HC) and meet the criterion of having at least 50% of the cells from the cell types Neurons, Astrocytes, or Oligos expressing the gene Ntrk2 at levels greater than the threshold of 0.8. These samples are of particular interest due to their high expression of Ntrk2 across selected cell types and tissues.
+
+```{r percentage of cells with threshold expression}
+# Define the gene and the expression threshold
+gene <- "Ntrk2"
+threshold <- 0.8
+percentage_threshold <- 50  
+
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+
+samples_to_keep <- c()
+  sample_ids <- unique(mouse_cortex_data@meta.data$SampleID)
+
+# Loop over each sample ID
+for (sample_id in sample_ids) {
+  
+  
+  # Subset the Seurat object for cells that match the current sample ID and are one of the cell types of interest
+  subset_cells <- subset(mouse_cortex_data, subset = SampleID == sample_id & Class %in% cell_types_of_interest)
+  
+  # Fetch the gene expression data for the subset
+  expression_data <- FetchData(subset_cells, vars = gene)
+  
+  # Calculate the proportion of cells where the gene's expression is above the threshold
+  proportion_above_threshold <- sum(expression_data[, gene] > threshold, na.rm = TRUE) / nrow(expression_data) * 100
+  
+  # Check if the proportion of cells above the threshold is greater than or equal to the percentage threshold
+  if (proportion_above_threshold >= percentage_threshold) {
+    # If the condition is met, add the sample ID to the list
+    samples_to_keep <- c(samples_to_keep, sample_id)
+  }
+}
+
+length(print(samples_to_keep))
+
+seurat_filtered <- subset(seurat_subset, subset = SampleID %in% samples_to_keep)
+
+VlnPlot(seurat_filtered, features = "Ntrk2", group.by = 'Class', idents = c("Neurons","Astrocytes", "Oligos"), sort = TRUE, pt.size = 0.1) + ylim(c(0,5))+ NoLegend()
+
+
+ntrk2_exp <- FetchData(seurat_filtered, vars = "Ntrk2")
+
+metadata_filtered <- seurat_filtered[[]]
+(metadata_filtered[c("Sex", "Age")])
+
+
+# Now `samples_to_keep` contains the IDs of samples where at least 20% of cells exceed the expression threshold
+
+# a boxplot/ comparision of different threshold 
+# details about other metadata in the selected samples (male/ females/ age/ tissue origin)
+
+
+
+# calculates the average expression of the Ntrk2 gene across different tissues, and plots the top 10 tissues with the highest expression. After that, selecting samples that belong to specific tissues (such as Ctx1.5, Ctx3, Ctx2, Ctx1, CA1, Hypoth, HC) and storing them in selected_samples
+
+# common samples between two filtration of 
+common_samples <- intersect(selected_samples, samples_to_keep)
+
+print(common_samples)
+length(common_samples) #22
+#"10X22_2" "10X28_3" "10X28_2" "10X50_4" "10X50_1" "10X19_2" "10X05_1" "10X05_2" "10X50_3" "10X22_1" "10X36_3" "10X20_2" "10X35_2" "10X20_1" "10X36_2" "10X36_1" "10X38_2" "10X35_1" "10X07_1" "10X38_1" "10X38_3" "10X86_3"
+
+cortext_common_samples <- subset(mouse_cortex_data, subset = SampleID %in% common_samples)
+
+FeaturePlot(cortext_common_samples, "Ntrk2")
+DimPlot(cortext_common_samples)
+
+DimPlot(cortext_common_samples, group.by = "Class", label = TRUE) +
+  labs(title = "UMAP Plot by Cell Type") +
+  theme_minimal()
+
+
+main_tissues <- cortext_common_samples@meta.data %>% #get the most frequent tissue corresponding to each SampleID
+  group_by(SampleID) %>%
+  count(Tissue) %>%
+  top_n(1, n) %>%
+  ungroup()
+
+print(main_tissues)
+
+
+ggplot(main_tissues, aes(x = SampleID, y = n, fill = Tissue)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Most Frequent Tissue in Each Sample", x = "Sample ID", y = "Frequency") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+```
+Correlation analysis in these common smaples:
+
+```{r}
+# Subset for Astrocytes in common samples
+common_astrocytes <- cortext_common_samples[, cortext_common_samples@meta.data$Class %in% 'Astrocytes']
+
+# Filter expressed genes
+min_cells = round(0.1 * ncol(common_astrocytes))  # 10% of total cells
+expressed_genes = rowSums(common_astrocytes@assays$RNA@counts > 0) >= min_cells
+common_astrocytes = common_astrocytes[expressed_genes, ]
+
+# Select variable features
+common_astrocytes <- FindVariableFeatures(common_astrocytes, selection.method = "vst", nfeatures = 5000)
+genes_selected <- VariableFeatures(common_astrocytes)
+
+# Log transform the counts
+log_counts <- log1p(cortex_Astrocytes@assays$RNA@counts)
+mean_exp = rowMeans(log_counts)
+
+# Calculate the correlation matrix
+cor_matrix <- cor(t(log_counts[genes_selected, ]), method = "spearman")
+
+# WGCNA soft threshold picking
+powers = c(4, 6, 8, 10, 12)
+sft = WGCNA::pickSoftThreshold(abs(cor_matrix), powerVector = powers, verbose = 5)
+
+# Create adjacency matrix
+adj = WGCNA::adjacency.fromSimilarity(abs(cor_matrix), power = 12)
+
+# Perform hierarchical clustering (ensure hclust_dist and dissTOM are defined)
+memb = dynamicTreeCut::cutreeDynamic(
+    dendro = hclust_dist, 
+    distM = dissTOM, 
+    deepSplit = 4, 
+    pamRespectsDendro = TRUE, 
+    minClusterSize = 5
+)
+
+# Plot heatmap of gene-gene correlation
+pheatmap(cor_matrix,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "average",
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         main = "Gene-Gene Correlation Heatmap in Common Samples")
+
+
+```
+Using CS-core
+```{r}
+mean_exp = rowMeans(common_astrocytes@assays$RNA@counts/common_astrocytes$nCount_RNA)
+genes_selected = names(sort.int(mean_exp, decreasing = T))[1:5000] # select top 5000 genes out of the 27998
+
+
+CSCORE_result <- CSCORE(common_astrocytes, genes = genes_selected)
+# Obtain CS-CORE co-expression estimates
+CSCORE_coexp <- CSCORE_result$est
+
+# Obtain BH-adjusted p values
+CSCORE_p <- CSCORE_result$p_value
+p_matrix_BH = matrix(0, length(genes_selected), length(genes_selected))
+p_matrix_BH[upper.tri(p_matrix_BH)] = p.adjust(CSCORE_p[upper.tri(CSCORE_p)], method = "BH")
+p_matrix_BH <- p_matrix_BH + t(p_matrix_BH)
+
+# Set co-expression entires with BH-adjusted p-values greater than 0.05 to 0
+CSCORE_coexp[p_matrix_BH > 0.05] <- 0
+
+
+# Compute the adjacency matrix based on the co-expression matrix
+adj = WGCNA::adjacency.fromSimilarity(abs(CSCORE_coexp), power = 1)
+
+# Compute the topological overlap matrix
+TOM = WGCNA::TOMsimilarity(adj)
+dissTOM = 1-TOM
+rownames(dissTOM) <- colnames(dissTOM) <- genes_selected
+
+# Run hierarchical clustering as in the WGCNA workflow
+hclust_dist = hclust(as.dist(dissTOM), method = "average") 
+memb = dynamicTreeCut::cutreeDynamic(dendro = hclust_dist, 
+                     distM = dissTOM, 
+                     deepSplit = 2,
+                     pamRespectsDendro = FALSE,
+                     minClusterSize = 10)
+
+# For more instructions on how to tune the parameters in the WGCNA workflow,
+# please refer to https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/Tutorials/
+
+names(memb) = genes_selected
+memb_tab <- table(memb)
+module_list = lapply(sort(unique(memb)), function(i_k) names(which(memb == i_k)))
+
+
+barplot(memb_tab, 
+        main = "Module Membership", 
+        xlab = "Module", 
+        ylab = "Number of Genes", 
+        col = rainbow(length(memb_tab)))
+
+
+
+# Heatmap of the TOM
+pheatmap(TOM, 
+         cluster_rows = hclust_dist, 
+         cluster_cols = hclust_dist, 
+         show_rownames = FALSE, 
+         show_colnames = FALSE, 
+         main = "Topological Overlap Matrix")
+
+```
+
+```{r}
+
+
+# Define cell types of interest
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+
+# Initialize a list to store samples that meet the criteria
+samples_to_keep <- list()
+
+# Get unique sample IDs from the metadata
+sample_ids <- unique(mouse_cortex_data@meta.data$SampleID)
+
+# Loop over each sample ID
+for (sample_id in sample_ids) {
+  results_per_cell_type <- list()
+  
+  # Filter metadata for the current sample ID
+  sample_metadata <- mouse_cortex_data@meta.data %>% filter(SampleID == sample_id)
+  
+  # Fetch gene expression data for the current sample ID
+  sample_expression_data <- FetchData(mouse_cortex_data, cells = rownames(sample_metadata), vars = "Ntrk2")
+  
+  # Loop over each cell type of interest
+  for (cell_type in cell_types_of_interest) {
+    cell_type_metadata <- sample_metadata %>% filter(Class == cell_type)
+    
+    # Ensure there are cells to avoid division by zero
+    if (nrow(cell_type_metadata) > 0) {
+      # Fetch gene expression data for the current cell type
+      cell_type_expression_data <- sample_expression_data[rownames(cell_type_metadata), , drop = FALSE]
+      
+      # Calculate the proportion of cells where the gene's expression is above the threshold
+      proportion_above_threshold <- sum(cell_type_expression_data[, gene] > threshold, na.rm = TRUE) / nrow(cell_type_expression_data) * 100
+      
+      # Add the result to the list for the cell type
+      results_per_cell_type[[cell_type]] <- proportion_above_threshold
+    }
+  }
+  
+  # Check if any cell type meets the criteria
+  for (cell_type in cell_types_of_interest) {
+    if (!is.null(results_per_cell_type[[cell_type]]) && results_per_cell_type[[cell_type]] >= percentage_threshold) {
+      # If the condition is met, add the sample ID to the list for the corresponding cell type
+      samples_to_keep[[sample_id]] <- results_per_cell_type
+    }
+  }
+}
+
+
+
+```
+
+
+```{r}
+#this is averaging for all celltypes in each sample
+
+data <- FetchData(seurat_subset, vars = c("SampleID", "Ntrk2"))
+
+# Calculate average expression by SampleID
+avg_exp <- data %>%
+  group_by(SampleID) %>%
+  summarise(avg_expression = mean(!!sym("Ntrk2"), na.rm = TRUE))
+
+# Filter samples based on threshold
+selected_samples <- avg_exp %>%
+  filter(avg_expression > 0.8)
+
+# Subset the Seurat object to keep only cells from selected samples
+seurat_subset2 <- subset(seurat_subset, cells = WhichCells(seurat_subset, expression = SampleID %in% selected_samples$SampleID))
+
+
+# Extract gene expression data for 'Ntrk2'
+ntrk2_counts <- FetchData(seurat_subset2, vars = "Ntrk2")
+
+# Combine with sample IDs from metadata
+combined_data <- data.frame(SampleID = seurat_subset2@meta.data$SampleID, Ntrk2 = ntrk2_counts)
+
+# Calculate the sum of Ntrk2 expression per sample
+ntrk2_expression_per_sample <- aggregate(Ntrk2 ~ SampleID, data = combined_data, FUN = sum)
+
+
+ggplot(ntrk2_expression_per_sample, aes(x = SampleID, y = Ntrk2)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Ntrk2 Expression per Sample",
+       x = "Sample ID",
+       y = "Total Expression") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+
+
+
+
+
+```
+
+```{r}
+ntrk2_high_expression <- FetchData(seurat_subset2, vars = "Ntrk2")
+ntrk2_high_expression
+
+
+
+high_ntrk_Violn_plot <- VlnPlot(seurat_subset2, features = "Ntrk2", group.by = 'Class', idents = c("Neurons","Astrocytes", "Oligos"), sort = TRUE, pt.size = 0.1) + ylim(c(0,5))+ NoLegend()
+high_ntrk_Violn_plot
+
+
+
+```
+
+
+
+
+```{r}
+
+# Initialize an empty data frame to store results
+results_df <- data.frame(SampleID = character(), CellType = character(), AverageExpression = numeric(), stringsAsFactors = FALSE)
+
+# Loop over samples
+for (sample_id in sample_ids) {
+  
+  # Loop over cell types
+  for (cell_type in cell_types_of_interest) {
+    
+    # Subset for cells of the current sample ID and current cell type
+    subset_cells <- subset(seurat_subset, subset = SampleID == sample_id & Class == cell_type)
+    
+    # Check if the subset is not empty
+    if (nrow(subset_cells) > 0) {
+      
+      # Get expression data for "NTRK2"
+      expression_data <- FetchData(subset_cells, vars = gene)
+      
+      # Calculate average expression if there's any data
+      
+      if (nrow(expression_data) > 0 && !is.null(expression_data[[gene]])) {
+        avg_expression <- mean(expression_data[[gene]], na.rm = TRUE)
+      } else {
+        avg_expression <- NA  # Use NA for samples where the gene data is not available or subset is empty
+      }
+      
+      # Append the results to the data frame
+      results_df <- rbind(results_df, data.frame(SampleID = sample_id, CellType = cell_type, AverageExpression = avg_expression))
+    } else {
+      # Include rows with NA for samples with no cells of the current type
+      results_df <- rbind(results_df, data.frame(SampleID = sample_id, CellType = cell_type, AverageExpression = NA))
+    }
+  }
+}
+
+
+# filter samples with average expression > 0.8
+filtered_results_df <- dplyr::filter(results_df, AverageExpression >= 0.8)
+
+# create seurar object with those samples 
+
+sample_ids_to_keep <- unique(filtered_results_df$SampleID)
+
+
+seurat_object_filtered <- subset(seurat_subset, subset = SampleID %in% sample_ids_to_keep)
+
+
+high_ntrk_Violn_plot2 <- VlnPlot(seurat_object_filtered, features = "Ntrk2", group.by = 'Class', idents = c("Neurons","Astrocytes", "Oligos"), sort = TRUE, pt.size = 0.1) + ylim(c(0,5))+ NoLegend()
+high_ntrk_Violn_plot2
+
+```
+
+
+```{r}
+
+
+# Define cell types of interest
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligos")
+
+# Fetch data with SampleID, "Ntrk2" expression and cell type
+data <- FetchData(seurat_subset, vars = c("SampleID", "Ntrk2", "cell_type"))
+
+# Filter data to include only the cell types of interest
+filtered_data <- data %>%
+  filter(cell_type %in% cell_types_of_interest)
+
+# Calculate average expression by SampleID only for the selected cell types
+avg_exp <- filtered_data %>%
+  group_by(SampleID) %>%
+  summarise(avg_expression = mean(!!sym("Ntrk2"), na.rm = TRUE))
+
+# Filter samples based on threshold
+selected_samples <- avg_exp %>%
+  filter(avg_expression > 0.8)
+
+# Subset the Seurat object to keep only cells from selected samples and cell types
+seurat_subset2 <- subset(seurat_subset, subset = SampleID %in% selected_samples$SampleID & Class %in% cell_types_of_interest)
+
+# Fetch "Ntrk2" data again if needed, now from the subsetted Seurat object
+ntrk2_counts <- FetchData(seurat_subset2, vars = "Ntrk2")
+
+# Combine with sample IDs and cell types from metadata
+combined_data <- data.frame(SampleID = seurat_subset2@meta.data$SampleID, 
+                            cell_type = seurat_subset2@meta.data$Class, 
+                            Ntrk2 = ntrk2_counts)
+
+# Calculate the sum of Ntrk2 expression per sample and cell type
+ntrk2_expression_per_sample <- combined_data %>%
+  group_by(SampleID, cell_type) %>%
+  summarise(sum_expression = sum(Ntrk2, na.rm = TRUE))
+
+# View the resulting data frame
+print(ntrk2_expression_per_sample)
+
+
+
+```
+
+
+```{r}
+```{r, fig.width=15, fig.height=8}
+# Calculate intersections for different conditions
+intersected_samples_500a <- intersect(min_500$Sample, by_gene_1_50$SampleID)
+intersected_samples_500b <- intersect(min_500$Sample, by_gene_2_50$SampleID)
+intersected_samples_500c <- intersect(min_500$Sample, by_gene_1_80$SampleID)
+intersected_samples_500d <- intersect(min_500$Sample, by_gene_2_80$SampleID)
+
+intersected_samples_750a <- intersect(min_750$Sample, by_gene_1_50$SampleID)
+intersected_samples_750b <- intersect(min_750$Sample, by_gene_2_50$SampleID)
+intersected_samples_750c <- intersect(min_750$Sample, by_gene_1_80$SampleID)
+intersected_samples_750d <- intersect(min_750$Sample, by_gene_2_80$SampleID)
+
+intersected_samples_1000a <- intersect(min_1000$Sample, by_gene_1_50$SampleID)
+intersected_samples_1000b <- intersect(min_1000$Sample, by_gene_2_50$SampleID)
+intersected_samples_1000c <- intersect(min_1000$Sample, by_gene_1_80$SampleID)
+intersected_samples_1000d <- intersect(min_1000$Sample, by_gene_2_80$SampleID)
+
+intersected_samples_1200a <- intersect(min_1200$Sample, by_gene_1_50$SampleID)
+intersected_samples_1200b <- intersect(min_1200$Sample, by_gene_2_50$SampleID)
+intersected_samples_1200c <- intersect(min_1200$Sample, by_gene_1_80$SampleID)
+intersected_samples_1200d <- intersect(min_1200$Sample, by_gene_2_80$SampleID)
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  CellCountThreshold = rep(c("500", "750", "1000", "1200"), each = 4),
+  GeneExpressionCondition = rep(c("expression_thresholds_1.0_50%", "expression_thresholds_2.0_50%", "expression_thresholds_1.0_80%", "expression_thresholds_2.0_80%"), times = 4),
+  SampleCount = c(
+    length(intersected_samples_500a), length(intersected_samples_500b), length(intersected_samples_500c), length(intersected_samples_500d),
+    length(intersected_samples_750a), length(intersected_samples_750b), length(intersected_samples_750c), length(intersected_samples_750d),
+    length(intersected_samples_1000a), length(intersected_samples_1000b), length(intersected_samples_1000c), length(intersected_samples_1000d),
+    length(intersected_samples_1200a), length(intersected_samples_1200b), length(intersected_samples_1200c), length(intersected_samples_1200d)
+  ),
+  SampleIDs = I(list(
+    intersected_samples_500a, intersected_samples_500b, intersected_samples_500c, intersected_samples_500d,
+    intersected_samples_750a, intersected_samples_750b, intersected_samples_750c, intersected_samples_750d,
+    intersected_samples_1000a, intersected_samples_1000b, intersected_samples_1000c, intersected_samples_1000d,
+    intersected_samples_1200a, intersected_samples_1200b, intersected_samples_1200c, intersected_samples_1200d
+  ))
+)
+
+# Ensure the GeneExpressionCondition is a factor with all levels specified
+plot_data$GeneExpressionCondition <- factor(plot_data$GeneExpressionCondition, levels = c("expression_thresholds_1.0_50%", "expression_thresholds_2.0_50%", "expression_thresholds_1.0_80%", "expression_thresholds_2.0_80%"))
+
+# Ensure the CellCountThreshold is a factor with the correct order
+plot_data$CellCountThreshold <- factor(plot_data$CellCountThreshold, levels = c("500", "750", "1000", "1200"))
+print(plot_data)
+
+line_plot <- ggplot(plot_data, aes(x = CellCountThreshold, y = SampleCount, group = GeneExpressionCondition, color = GeneExpressionCondition)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Number of Samples by Intersection Conditions", x = "Cell Count Threshold", y = "Number of Samples") +
+  theme_minimal()
+
+print(line_plot)
+
+line_plot + facet_wrap(~ GeneExpressionCondition)
+
+
+```
+```{r}
+
+# Create the data frame
+plot_data_1 <- data.frame(
+  CellCountThreshold = rep(c("500", "750", "1000", "1200"), each = 2),
+  GeneExpressionCondition = rep(c("expression_thresholds_1.0_50%",  "expression_thresholds_1.0_80%"), times = 4),
+  SampleCount = c(
+    length(intersected_samples_500a),  length(intersected_samples_500c), 
+    length(intersected_samples_750a),  length(intersected_samples_750c), 
+    length(intersected_samples_1000a), length(intersected_samples_1000c), 
+    length(intersected_samples_1200a), length(intersected_samples_1200c)
+  ),
+  SampleIDs = I(list(
+    intersected_samples_500a,  intersected_samples_500c, 
+    intersected_samples_750a,  intersected_samples_750c, 
+    intersected_samples_1000a, intersected_samples_1000c, 
+    intersected_samples_1200a, intersected_samples_1200c 
+  ))
+)
+
+# Ensure GeneExpressionCondition is a factor with the correct order
+plot_data_1$GeneExpressionCondition <- factor(plot_data_1$GeneExpressionCondition, levels = c("expression_thresholds_1.0_50%",  "expression_thresholds_1.0_80%"))
+
+# Ensure the CellCountThreshold is a factor with the correct order
+plot_data_1$CellCountThreshold <- factor(plot_data_1$CellCountThreshold, levels = c("500", "750", "1000", "1200"))
+
+print(plot_data_1)
+
+# Create the line plot
+line_plot_1 <- ggplot(plot_data_1, aes(x = CellCountThreshold, y = SampleCount, group = GeneExpressionCondition, color = GeneExpressionCondition)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Number of Samples by Intersection Conditions", x = "Cell Count Threshold", y = "Number of Samples") +
+  theme_minimal()+
+    theme(legend.text = element_text(size = 12))  
+
+
+print(line_plot_1)
+
+# Add facet wrap to the plot
+line_plot_1 + facet_wrap(~ GeneExpressionCondition)
+
+# Save the plot to a file
+ggsave("line_plot_1.png", plot = line_plot_1, path = "/data/gpfs/projects/punim2183/data_processed")
+
+
+```
+
+```{r, include =FALSE}
+plot_non_zero <- ggplot(non_zero_table, aes(x = CellType, y = NonZeroCount, color = Dataset, group = Dataset)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Non-Zero Count of Ntrk2 Expression", x = "Cell Type", y = "Non-Zero Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ Dataset)
+
+# Print the Non-Zero Count line plot with facets
+print(plot_non_zero)
+
+# Plot Percentage as a line plot with facets
+plot_percentage <- ggplot(non_zero_table, aes(x = CellType, y = Percentage, color = Dataset, group = Dataset)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Percentage of Non-Zero Ntrk2 Expression", x = "Cell Type", y = "Percentage") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ Dataset)
+
+# Print the Percentage line plot with facets
+print(plot_percentage)
+
+```
+
+
+
+Tutorial:
+
+```{r}
+
+
+
+```
+
+
+```{r}
+install.packages("edgeR")
+library(edgeR)
+
+
+
+```

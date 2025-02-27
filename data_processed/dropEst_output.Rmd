@@ -1,0 +1,223 @@
+---
+title: "cc"
+output: html_document
+date: '2024-07-15'
+---
+
+```{r}
+library(SeuratObject)
+library(SeuratDisk)
+library(Seurat)
+library(cowplot)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(DT)
+library(tidyr)
+library(patchwork)
+# if (!requireNamespace("rtracklayer", quietly = TRUE)) {
+#     install.packages("BiocManager")
+#     BiocManager::install("rtracklayer")
+# }
+
+library(rtracklayer)
+
+#save.image(file = "dropEst_output.RData")
+#load("dropEst_output.RData")
+
+```
+
+
+```{r}
+cell.counts_1 <- readRDS("/data/gpfs/projects/punim2183/dropEst_job/cell.counts_orig_gtf.rds")
+
+seurat_obj_1 <- CreateSeuratObject(counts = cell.counts_1$cm)
+
+seurat_obj_1 <- NormalizeData(seurat_obj_1)
+
+seurat_obj_1 <- FindVariableFeatures(seurat_obj_1)
+
+seurat_obj_1 <- ScaleData(seurat_obj_1)
+
+seurat_obj_1 <- RunPCA(seurat_obj_1)
+
+seurat_obj_1 <- FindNeighbors(seurat_obj_1, dims = 1:10)
+seurat_obj_1 <- FindClusters(seurat_obj_1, resolution = 0.1)
+
+seurat_obj_1 <- RunUMAP(seurat_obj_1, dims = 1:10)
+
+DimPlot(seurat_obj_1, reduction = "umap")
+
+gene_expression_1 <- FetchData(seurat_obj_1, vars = "Olig1")
+total_expression_1 <- sum(gene_expression_1$"Olig1")
+total_expression_1
+
+
+gene_expression_Ntrk2 <- FetchData(seurat_obj_1, vars = "Ntrk2")
+total_expression_Ntrk2 <- sum(gene_expression_Ntrk2$"Ntrk2")
+total_expression_Ntrk2
+
+FeaturePlot(seurat_obj_1, features = "Ntrk2")
+
+```
+
+```{r}
+
+neurons_markers = c("Map2", "Rbfox3", "Tubb3")
+oligos_markers = c("Mbp", "Olig1", "Olig2")
+astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
+
+count_expressing_cells <- function(markers, seurat_obj) {
+  expression_data <- FetchData(seurat_obj, vars = markers)
+  num_cells <- sum(rowSums(expression_data > 0) > 0)
+  return(num_cells)
+}
+
+# Count cells expressing each set of markers
+neurons_cells_expressing <- count_expressing_cells(neurons_markers, seurat_obj_1)
+oligos_cells_expressing <- count_expressing_cells(oligos_markers, seurat_obj_1)
+astrocytes_cells_expressing <- count_expressing_cells(astrocytes_markers, seurat_obj_1)
+
+print(paste("Number of cells expressing neuron markers:", neurons_cells_expressing))
+print(paste("Number of cells expressing oligodendrocyte markers:", oligos_cells_expressing))
+print(paste("Number of cells expressing astrocyte markers:", astrocytes_cells_expressing))
+```
+
+```{r}
+FeaturePlot(seurat_obj_1, features = c("Map2", "Rbfox3", "Tubb3", "Mbp", "Olig1", "Olig2", "Gfap", "Aqp4", "Slc1a3"))
+FeaturePlot(seurat_obj_1, features = "Ntrk2trunc")
+FeaturePlot(seurat_obj_1, features = "Ntrk2FL")
+# FeaturePlot(seurat_obj_1, features = "Ntrk2")
+
+
+```
+
+```{r}
+
+gene_names <- c("Ntrk2trunc", "Ntrk2FL")  
+gene_expression <- FetchData(seurat_obj_1, vars = gene_names)
+
+num_cells_expressing <- list()
+
+for (gene in gene_names) {
+  num_cells_expressing[[gene]] <- sum(gene_expression[[gene]] > 0)
+  print(paste("Number of cells expressing", gene, ":", num_cells_expressing[[gene]]))
+}
+
+```
+
+```{r}
+#cluster_markers <- FindAllMarkers(seurat_obj_1, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+# cell type annotation
+new_cluster_ids <- c("Astrocytes", "Cell_type_1", "Neurons", "Oligo", "Cell_type_2", "Cell_type_3", "Oligo", "Cell_type_4", "Cell_type_5", "Cell_type_6")
+names(new_cluster_ids) <- levels(seurat_obj_1)
+seurat_obj_1 <- RenameIdents(seurat_obj_1, new_cluster_ids)
+Idents(seurat_obj_1)
+
+# seurat_obj_1 <- SetIdent(seurat_obj_1, value = "seurat_clusters")
+
+
+FeaturePlot(seurat_obj_1, features = neurons_markers)
+FeaturePlot(seurat_obj_1, features = oligos_markers)
+FeaturePlot(seurat_obj_1, features = astrocytes_markers)
+
+
+VlnPlot(seurat_obj_1, features = neurons_markers, group.by = "seurat_clusters")
+VlnPlot(seurat_obj_1, features = astrocytes_markers, group.by = "seurat_clusters")
+VlnPlot(seurat_obj_1, features = oligos_markers, group.by = "seurat_clusters")
+
+
+
+DotPlot(seurat_obj_1, features = c(neurons_markers, oligos_markers, astrocytes_markers)) + RotatedAxis()
+
+```
+
+```{r}
+# subset the Seurat object to include only cell_types 
+# subset_seurat <- subset(seurat_obj_1, idents = c("Astrocytes", "Neurons", "Oligo"))
+                     
+
+# VlnPlot(subset_seurat, features = "Ntrk2trunc")
+# VlnPlot(subset_seurat, features = "Ntrk2FL")
+VlnPlot(subset_seurat, features = gene_names)
+expression_data <- FetchData(subset_seurat, vars = gene_names)
+
+
+expression_summary <- expression_data %>%
+  group_by(Idents(subset_seurat)) %>%
+  summarise(across(everything(), mean, na.rm = TRUE))
+
+print(expression_summary)
+
+# DotPlot(subset_seurat, features = c("Ntrk2trunc", "Ntrk2FL"))
+```
+
+```{r}
+# Duplicate Test of GeneX:
+cell.counts_t <- readRDS("/data/gpfs/projects/punim2183/job_1_mod/cell.counts.rds")
+
+seurat_obj_t <- CreateSeuratObject(counts = cell.counts_t$cm)
+
+seurat_obj_t <- NormalizeData(seurat_obj_t)
+
+seurat_obj_t <- FindVariableFeatures(seurat_obj_t)
+
+seurat_obj_t <- ScaleData(seurat_obj_t)
+
+seurat_obj_t <- RunPCA(seurat_obj_t)
+
+seurat_obj_t <- FindNeighbors(seurat_obj_t, dims = 1:10)
+seurat_obj_t <- FindClusters(seurat_obj_t, resolution = 0.1)
+
+seurat_obj_t <- RunUMAP(seurat_obj_t, dims = 1:10)
+
+
+
+
+
+FeaturePlot(seurat_obj_t, features= "Olig1")
+gene_expression_olig1 <- FetchData(seurat_obj_t, vars = "Olig1")
+total_expression_olig1 <- sum(gene_expression_olig1$"Olig1")
+total_expression_olig1
+gene_expression_x <- FetchData(seurat_obj_t, vars = "geneX")
+total_expression_x <- sum(gene_expression_x$"geneX")
+total_expression_x
+
+
+```
+
+```{r}
+# Install the SeuratData package if needed
+if (!requireNamespace("SeuratData", quietly = TRUE)) {
+    install.packages("SeuratData")
+}
+
+# Load SeuratData package
+library(SeuratData)
+
+# Install the stxBrain dataset
+SeuratData::InstallData("stxBrain")
+
+
+options(timeout=600)
+InstallData("stxBrain")
+brain <- LoadData("stxBrain", type = "anterior1")
+VlnPlot(brain, features = "nCount_Spatial", pt.size = 0.1, layer = "counts") + NoLegend()
+SpatialPlot(brain, features = "nCount_Spatial", slot = "counts", image.alpha = 1)
+
+# Normalization 
+brain <- SCTransform(brain, assay = "Spatial", verbose = FALSE)  # For SCTransform normalization
+
+#log1p
+cMat <- brain[["Spatial"]]$counts
+cMat <- log1p(cMat)
+brain[["log1p"]] <- CreateAssayObject(
+  data = cMat
+)
+
+SpatialFeaturePlot(brain, features = "Ntrk2")
+
+```
+
+

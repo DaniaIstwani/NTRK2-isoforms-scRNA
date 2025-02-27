@@ -1,0 +1,337 @@
+---
+title: "Mouse cortex RNAseq"
+date: "2024-02-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages('SeuratData')
+
+# To save the entire workspace:
+save.image(file = "my_workspace.RData")
+load("my_workspace.RData")
+
+
+
+```
+
+Load libraries
+
+```{r}
+library(SeuratObject)
+library(SeuratDisk)
+library(Seurat)
+library(cowplot)
+library(dplyr)
+library(ggplot2)
+devtools::source_url('https://raw.githubusercontent.com/Neal-Liu1/Multi-omics-integration/main/Helper_functions.R')
+
+```
+
+Load data
+
+```{r}
+#loom_data <- SeuratDisk::Connect(filename = "/data/gpfs/projects/punim2183/data_processed/l5_All.loom", mode = 'r')
+#mouse_cortex_data <- as.Seurat(loom_data)
+#saveRDS(mouse_cortex_data, file = '/data/gpfs/projects/punim2183/data_processed/mouse_cortex_data.rds')
+
+mouse_cortex_data <- readRDS("/data/gpfs/projects/punim2183/data_processed/mouse_cortex_scRNAseq.rds")
+```
+
+
+
+```{r}
+mouse_cortex_data <- NormalizeData(mouse_cortex_data) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+
+```
+
+```{r}
+mouse_cortex_data <- RunUMAP(mouse_cortex_data, reduction = 'pca', dims = 1:25, assay = 'RNA', 
+                             reduction.name = "rna_umap", reduction.key = "RNA_umap_")
+
+```
+
+```{r, fig.width:15}
+P_by_Class <- DimPlot(mouse_cortex_data, reduction = 'rna_umap', group.by = 'Class', 
+              label=T, repel = T, label.size = 3.5)
+
+P_by_Class
+
+P_by_TaxonomyRank <- DimPlot(mouse_cortex_data, reduction = 'rna_umap', group.by = 'TaxonomyRank3', 
+              label=T, repel = T, label.size = 3.5, raster = "FALSE")
+
+
+P_by_TaxonomyRank
+
+
+```
+
+```{r}
+
+p2 <- Seurat::FeaturePlot(mouse_cortex_data, features = 'Ntrk2', reduction = 'rna_umap', max.cutoff = 2) 
+
+p2
+```
+
+```{r}
+mouse_cortex_data@meta.data$SampleID
+mouse_cortex_data@meta.data$Class
+
+neuron_cells <- WhichCells(mouse_cortex_data, expression = Class== "Neurons")
+sum(table(neuron_cells))
+# Extract the Sample IDs containing neuron cells
+neuron_sample_ids <- mouse_cortex_data@meta.data[neuron_cells, "SampleID"]
+
+# Get the unique sample IDs
+unique_neuron_sample_ids <- unique(neuron_sample_ids)
+sum(table(unique_neuron_sample_ids))
+
+# Print out the unique sample IDs
+print(unique_neuron_sample_ids)
+```
+
+```{r}
+
+# Filter cells based on the metadata column for SampleID
+cells_of_interest <- which(mouse_cortex_data@meta.data$SampleID %in% unique_neuron_sample_ids)
+
+# Now fetch the expression data for the gene 'NTRK2' for these cells
+ntrk2_expression <- FetchData(mouse_cortex_data, vars = "Ntrk2", cells = cells_of_interest)
+
+# ntrk2_expression will contain the expression levels of NTRK2 in the cells of interest
+ntrk2_expression
+
+```
+
+
+
+```{r}
+# # Define a threshold for high expression, this is just an example
+# high_expression_threshold <- 3
+# 
+# 
+# # Fetch data for a gene
+# #gene_expression_data <- mouse_cortex_data[["RNA"]]@data["Ntrk2", ]
+# 
+# # Create a new metadata column 'High_NTRK2' to flag high NTRK2 expressing cells
+# mouse_cortex_data$High_NTRK2 <- ifelse(mouse_cortex_data@assays$RNA@data["Ntrk2", ] > high_expression_threshold, "High", "Low")
+# 
+# # Now you can plot cells with high NTRK2 expression
+# cells_with_hight_Ntrk2 <-FeaturePlot(mouse_cortex_data, features = "Ntrk2", cols = c("green", "red"), raster = 'TRUE', label="TRUE")
+# cells_with_hight_Ntrk2
+# 
+# #mouse_cortex_data <- RunUMAP(mouse_cortex_data, dims = 1:10)
+# 
+# Ntrk2_expression <- SeuratObject:::DimPlot(mouse_cortex_data, reduction = "umap", label = TRUE, pt.size = 1, raster = 'FALSE')
+# Ntrk2_expression
+# 
+
+
+```
+
+
+
+
+
+```{r}
+
+# metadata <- mouse_cortex_data@meta.data
+# #  Create a dataframe summarizing cell counts per sample for the cell types of interest
+# cell_counts <- mouse_cortex_data@meta.data %>%
+#   group_by(SampleID, Class) %>%
+#   summarise(CellCount = n(), .groups = 'drop') %>%
+#   filter(Class %in% c('Neurons', 'Astrocytes', 'Oligos'))
+# 
+# 
+# #  Aggregate to get total counts of the specific cells per sample
+# preferred_counts <- cell_counts %>%
+#   group_by(SampleID) %>%
+#   summarise(TotalCount = sum(CellCount)) %>%
+#   filter(TotalCount >= 3500)
+# 
+# #  Subset the Seurat object to include only cells from the samples that meet the criteria
+# samples_to_keep <- preferred_counts$SampleID
+# seurat_subset <- subset(mouse_cortex_data, subset = SampleID %in% samples_to_keep)
+# 
+# 
+# 
+# #CellType per sample
+# target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+# print(target_cell_counts_by_sample)
+# sum(table(target_cell_counts_by_sample))
+# 
+# # Convert the table to a data frame for plotting
+# target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+# target_counts_df
+# 
+# names(target_counts_df) <- c("Sample", "CellType", "Count")
+# 
+# # Create a more readable bar plot
+# ggplot(target_counts_df, aes(x = Sample, y = Count, fill = CellType)) +
+#   geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+#   theme_minimal() +
+#   theme(
+#     axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=0.5),
+#     legend.position = "bottom"
+#   ) +
+#   labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Counts by Sample and Type")
+# 
+# target_metadata <- seurat_subset@meta.data
+# 
+# sample_celltype_summary <- metadata %>%
+#   group_by(SampleID, Class) %>%
+#   summarize(Count = n(), .groups = 'drop') # Counts the number of cells in each group
+# 
+# # Step 2: (Optional) Arrange the data for better readability in plot
+# sample_celltype_summary <- sample_celltype_summary %>%
+#   arrange(SampleID, desc(Count))
+# 
+# # Step 3: Plot the data
+# ggplot(sample_celltype_summary, aes(x = SampleID, y = Count, fill = Class)) +
+#   geom_bar(stat = "identity", position = "stack") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+#   labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Type Frequencies by Sample")
+# 
+# 
+# 
+# ```#  Create a dataframe summarizing cell counts per sample for the cell types of interest
+# cell_counts <- mouse_cortex_data@meta.data %>%
+#   group_by(SampleID, Class) %>%
+#   summarise(CellCount = n(), .groups = 'drop') %>%
+#   filter(Class %in% c('Neurons', 'Astrocytes', 'Oligos'))
+# 
+# #
+# #  Aggregate to get total counts of the specific cells per sample
+# preferred_counts <- cell_counts %>%
+#   group_by(SampleID) %>%
+#   summarise(TotalCount = sum(CellCount)) %>%
+#   filter(TotalCount >= 3500)
+#
+# #  Subset the Seurat object to include only cells from the samples that meet the criteria
+# samples_to_keep <- preferred_counts$SampleID
+# seurat_subset <- subset(mouse_cortex_data, subset = SampleID %in% samples_to_keep)
+#
+#
+#
+# #CellType per sample
+# target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+# print(target_cell_counts_by_sample)
+# sum(table(target_cell_counts_by_sample))
+#
+# # Convert the table to a data frame for plotting
+# target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+# target_counts_df
+#
+# names(target_counts_df) <- c("Sample", "CellType", "Count")
+#
+# # Create a more readable bar plot
+# ggplot(target_counts_df, aes(x = Sample, y = Count, fill = CellType)) +
+#   geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+#   theme_minimal() +
+#   theme(
+#     axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=0.5),
+#     legend.position = "bottom"
+#   ) +
+#   labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Counts by Sample and Type")
+#
+# target_metadata <- seurat_subset@meta.data
+#
+# sample_celltype_summary <- metadata %>%
+#   group_by(SampleID, Class) %>%
+#   summarize(Count = n(), .groups = 'drop') # Counts the number of cells in each group
+# 
+# # Step 2: (Optional) Arrange the data for better readability in plot
+# sample_celltype_summary <- sample_celltype_summary %>%
+#   arrange(SampleID, desc(Count))
+# 
+# # Step 3: Plot the data
+# ggplot(sample_celltype_summary, aes(x = SampleID, y = Count, fill = Class)) +
+#   geom_bar(stat = "identity", position = "stack") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+#   labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Type Frequencies by Sample")
+# 
+
+
+```
+
+```{r}
+
+# keep samples with a certain number of Astrocytes, Neurons and Oligos as well
+min_astrocyte_count <- 200 
+min_neuron_count <- 200  # define the minimum for Neurons
+min_oligo_count <- 200   # define the minimum for Oligos
+
+# Summarize cell counts by SampleID and Class
+cell_counts <- mouse_cortex_data@meta.data %>%
+  group_by(SampleID, Class) %>%
+  summarise(CellCount = n(), .groups = 'drop')
+as.data.frame(cell_counts)
+
+# Filter the samples with the minimum number of Cells of interest
+astrocyte_counts <- cell_counts %>%
+  filter(Class == 'Astrocytes' & CellCount >= min_astrocyte_count) %>%
+  select(SampleID)  
+
+sum(table(astrocyte_counts))
+
+neuron_counts <- cell_counts %>%
+  filter(Class == 'Neurons' & CellCount >= min_neuron_count) %>%
+  select(SampleID)
+
+sum(table(neuron_counts))
+
+oligo_counts <- cell_counts %>%
+  filter(Class == 'Oligos' & CellCount >= min_oligo_count) %>%
+  select(SampleID)
+
+sum(table(oligo_counts))
+
+# Combine the filters to get a list of SampleIDs to keep
+samples_to_keep <- Reduce(intersect, list(astrocyte_counts$SampleID, neuron_counts$SampleID, oligo_counts$SampleID))
+samples_to_keep
+length(samples_to_keep)
+
+# Subset the Seurat object to include only cells from the samples that meet the criteria
+seurat_subset <- subset(mouse_cortex_data, subset = SampleID %in% samples_to_keep)
+View(seurat_subset@meta.data)
+
+# Cell Type per sample
+target_cell_counts_by_sample <- table(seurat_subset@meta.data$SampleID, seurat_subset@meta.data$Class)
+print(target_cell_counts_by_sample)
+
+# Convert the table to a data frame for plotting
+target_counts_df <- as.data.frame(target_cell_counts_by_sample)
+names(target_counts_df) <- c("Sample", "CellType", "Count")
+
+# Create a more readable bar plot
+ggplot(target_counts_df, aes(x = Sample, y = Count, fill = CellType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=0.5),
+    legend.position = "bottom"
+  ) +
+  labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Counts by Sample and Type")
+
+# stacked chart: 
+
+sample_celltype_summary <- seurat_subset@meta.data %>%
+  group_by(SampleID, Class) %>%
+  summarize(Count = n(), .groups = 'drop')  # Counts the number of cells in each group
+
+# Plot the data in a stacked bar chart
+ggplot(sample_celltype_summary, aes(x = SampleID, y = Count, fill = Class)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = "Sample", y = "Cell Count", fill = "Cell Type", title = "Cell Type Frequencies by Sample")
+
+
+
+```

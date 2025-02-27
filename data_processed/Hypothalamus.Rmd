@@ -1,0 +1,161 @@
+---
+title: "Hypothalamus"
+output: html_document
+date: "2025-02-23"
+---
+
+```{r}
+loom_Hypo <- SeuratDisk::Connect(filename = "/data/gpfs/projects/punim2183/data_processed/l1_hypothalamus.loom", mode = 'r')
+
+
+Hypo_data <- as.Seurat(loom_Hypo)
+saveRDS(Hypo_data, file = '/data/gpfs/projects/punim2183/data_processed/Hypo_data.rds')
+
+Hypo_data <- readRDS("/data/gpfs/projects/punim2183/data_processed/Hypo_data.rds")
+
+Hypo_data <- NormalizeData(Hypo_data) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+
+Hypo_data <- RunUMAP(Hypo_data, reduction = 'pca', dims = 1:10, assay = 'RNA', 
+                             reduction.name = "rna_umap", reduction.key = "RNA_umap_")
+
+```
+
+```{r}
+ntrk2_expr_hypo <- FetchData(Hypo_data, vars = c("Ntrk2", "SampleID"))
+
+View(ntrk2_expr_hypo)
+
+ntrk2_sample <- ntrk2_expr_hypo %>% group_by(SampleID) %>%
+  arrange(desc(Ntrk2))
+
+View(ntrk2_sample)
+
+
+#avg expression per sample
+ntrk2_sample_avg <- ntrk2_expr_hypo %>%
+  group_by(SampleID) %>%
+  summarise(
+    avg_expression = mean(Ntrk2, na.rm = TRUE)
+  ) %>%
+    arrange(desc(avg_expression))
+
+ntrk2_sample_avg
+
+samples_h <- unique(Hypo_data@meta.data$SampleID)
+print(samples_h)
+
+
+FeaturePlot(Hypo_data, "Ntrk2")
+DimPlot(Hypo_data, reduction = ("rna_umap"), group.by = "Class")
+DimPlot(Hypo_data, reduction = ("rna_umap"), group.by = "SampleID")
+
+
+```
+
+
+```{r}
+count_data_h <- Hypo_data@assays$RNA$counts
+
+# detect outliers 
+htree <- hclust(dist(t(count_data_h)), method = "average")
+plot(htree)
+
+#pca for determining outliers:
+pca_h <- prcomp(t(Hypo_data))
+pca.dat_h <- pca_h$x
+
+pca.var_h <- pca_h$sdev^2
+pca.var.percent_h <- round(pca.var_h/ sum(pca.var_h)*100 , digits = 2)
+ 
+ggplot(pca.dat_h, aes(PC1,PC2)) +
+  geom_point() +
+  geom_text(label = rownames(pca.dat_h)) +
+  labs(x = paste0('PC1:' , pca.var.percent_h[1], '%'),
+      y = paste0('PC2:' , pac.var_h[2], '%'))
+
+
+mean_exp_h = rowMeans(Hypo_data@assays$RNA@counts/Hypo_data$nCount_RNA)
+genes_selected_h = names(sort.int(mean_exp, decreasing = T))[1:5000] # select top 5000 genes  
+genes_selected_h
+
+
+# count matrix is sparse
+count_matrix <- GetAssayData(Hypo_data, slot = "counts")
+
+# Verify gene selection
+genes_selected_h <- genes_selected_h[genes_selected_h %in% rownames(count_matrix)]
+print(length(genes_selected_h))  # Should be >0
+
+# Run CSCORE again with filtered genes
+CSCORE_result_h <- CSCORE(Hypo_data, genes = genes_selected_h)
+
+
+# Obtain CS-CORE co-expression estimates
+CSCORE_coexp_h <- CSCORE_result_h$est
+
+# Obtain BH-adjusted p values
+CSCORE_p_h <- CSCORE_result_h$p_value
+p_matrix_BH = matrix(0, length(genes_selected), length(genes_selected))
+p_matrix_BH[upper.tri(p_matrix_BH)] = p.adjust(CSCORE_p_h[upper.tri(CSCORE_p)], method = "BH")
+p_matrix_BH_h <- p_matrix_BH + t(p_matrix_BH)
+
+# Set co-expression entires with BH-adjusted p-values greater than 0.05 to 0
+CSCORE_coexp_h[p_matrix_BH > 0.05] <- 0
+
+
+
+if (!require(WGCNA)) {
+  install.packages("WGCNA")
+  library(WGCNA)
+}else{
+  library(WGCNA)
+}
+
+
+
+
+
+# Compute the adjacency matrix based on the co-expression matrix
+adj = WGCNA::adjacency.fromSimilarity(abs(CSCORE_coexp), power = 1)
+
+# Compute the topological overlap matrix
+TOM = WGCNA::TOMsimilarity(adj)
+dissTOM = 1-TOM
+rownames(dissTOM) <- colnames(dissTOM) <- genes_selected
+
+# Run hierarchical clustering as in the WGCNA workflow
+hclust_dist = hclust(as.dist(dissTOM), method = "average") 
+memb = dynamicTreeCut::cutreeDynamic(dendro = hclust_dist, 
+                     distM = dissTOM, 
+                     deepSplit = 2,
+                     pamRespectsDendro = FALSE,
+                     minClusterSize = 10)
+
+# For more instructions on how to tune the parameters in the WGCNA workflow,
+# please refer to https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/Tutorials/
+
+names(memb) = genes_selected
+memb_tab <- table(memb)
+module_list = lapply(sort(unique(memb)), function(i_k) names(which(memb == i_k)))
+
+
+barplot(memb_tab, 
+        main = "Module Membership", 
+        xlab = "Module", 
+        ylab = "Number of Genes", 
+        col = rainbow(length(memb_tab)))
+
+
+
+# Heatmap of the TOM
+pheatmap(TOM, 
+         cluster_rows = hclust_dist, 
+         cluster_cols = hclust_dist, 
+         show_rownames = FALSE, 
+         show_colnames = FALSE, 
+         main = "Topological Overlap Matrix")
+
+
+
+
+```

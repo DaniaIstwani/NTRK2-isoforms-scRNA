@@ -1,0 +1,172 @@
+---
+title: "co-expression"
+output: html_document
+date: '2024-10-27'
+---
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+}
+
+BiocManager::install("WGCNA", dependencies = TRUE)
+
+
+```
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(igraph) 
+library(WGCNA)
+library(ggraph)
+# library(clusterProfiler) # for enrichment analysis
+
+
+
+```
+
+```{r}
+# Inspect a small portion of the matrix
+all_expr_data_2 <- as.matrix(orig_2@assays$RNA$counts)
+all_expr_data_2 <- all_expr_data_2[rowSums(all_expr_data_2) > 0, ]
+ntrk2_expr_2 <- all_expr_data_2["Ntrk2", ]
+
+
+```
+
+## Calculate correlation
+
+more than 0.4 correlation threshold is resulting in 1 or 0 genes being correlated to Ntrk2 expression\
+
+```{r}
+# Calculate correlations between ntrk2_expr_2 and all other genes
+correlations <- apply(all_expr_data_2, 1, function(x) cor(x, ntrk2_expr_2, method = "pearson"))
+
+# Remove self-correlation
+correlations <- correlations[names(correlations) != "Ntrk2"]
+
+# Filter genes with high correlation (positive or negative) above the threshold
+threshold <- 0.40
+filtered_correlations <- correlations[abs(correlations) > threshold]
+
+# Extract co-expressed genes and their correlation values from the filtered correlations
+co_expressed_genes_2 <- names(filtered_correlations)
+co_expressed_correlations_2 <- as.vector(filtered_correlations)
+
+
+```
+
+## create a network with the correlated (co-expressed) genes
+
+```{r}
+
+# Create a simple network with the co-expressed genes
+data <- data.frame(
+  from = rep(goi_o, length(co_expressed_genes_2)),  # Repeat goi_o to match length
+  to = co_expressed_genes_2,
+  weight = co_expressed_correlations_2
+)
+
+data
+
+# create the network
+network <- graph_from_data_frame(data)
+
+layout <- layout_with_fr(network)
+
+print(network)
+
+```
+
+## plot network
+
+### using igraph
+
+```{r}
+# Set node sizes based on degree (number of connections) to highlight important nodes
+V(network)$size <- degree(network) * 2  # Adjust multiplier for desired node size
+
+# Set node colors to differentiate the gene of interest
+V(network)$color <- ifelse(V(network)$name == goi_o, "red", "orange")
+
+# Set edge width based on the correlation strength
+E(network)$width <- E(network)$weight * 5  # Adjust multiplier for better visibility
+
+# Set layout for better spacing between nodes (e.g., Kamada-Kawai layout)
+layout <- layout_with_kk(network, weights = E(network)$weight)
+layout <- layout_with_fr(network, niter = 500, grid = "nogrid")
+layout <- layout * 1.5  
+
+# Plot the network
+plot(
+  network,
+  layout = layout,
+  vertex.label = V(network)$name,  
+  vertex.label.cex = 0.9,          #label size
+  vertex.label.color = "black",    
+  vertex.label.dist = 1,
+  edge.color = "gray",             
+  main = paste("Co-expression Network of", goi_o)
+)
+
+
+
+
+```
+
+### using ggraph
+
+```{r}
+library(ggraph)
+library(ggplot2)
+
+# Convert to ggraph object
+g <- graph_from_data_frame(data)
+
+# Plot with ggraph and radial layout for better readability
+ggraph(g, layout = "fr") +
+  geom_edge_link(aes(width = weight), edge_alpha = 0.3) +
+  geom_node_point(aes(size = degree(g)), color = "orange") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  ggtitle("Co-expression Network of Ntrk2") +
+  theme_void()
+
+
+
+```
+
+```{r}
+
+library(igraph)
+
+plot_coexpression_network <- function(edge_data, gene_of_interest) {
+  
+  # Create the network from the edge data frame
+  network <- graph_from_data_frame(edge_data, directed = FALSE)
+  
+  # Set edge attributes based on correlation weight
+  E(network)$width <- edge_data$weight * 5   # Scale width by correlation strength
+  E(network)$color <- ifelse(edge_data$weight > 0.5, "darkblue", "lightblue")  # Stronger correlations are darker
+  
+  # Set node colors and size
+  V(network)$color <- ifelse(V(network)$name == gene_of_interest, "red", "orange")
+  V(network)$size <- ifelse(V(network)$name == gene_of_interest, 10, 5)
+  
+  # Plot with Fruchterman-Reingold layout for better spacing
+  plot(
+    network,
+    layout = layout_with_fr(network),
+    vertex.label = V(network)$name,
+    vertex.label.cex = 0.7,
+    vertex.label.color = "black",
+    edge.color = E(network)$color,       # Use edge color based on correlation strength
+    edge.width = E(network)$width,       # Use edge width based on correlation strength
+    main = paste("Co-expression Network of", gene_of_interest)
+  )
+}
+
+
+plot_coexpression_network(edge_data, "Ntrk2")
+
+```

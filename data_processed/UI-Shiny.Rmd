@@ -1,0 +1,274 @@
+---
+title: "Rshiny"
+output: html_document
+date: '2024-11-19'
+---
+
+```{r}
+# Load libraries
+library(shiny)
+library(Seurat)
+library(ggplot2)
+
+# Define UI
+ui <- fluidPage(
+  titlePanel("Seurat Gene Expression Viewer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("gene", "Select Gene:", choices = rownames(combined_seurat_trunc_subset), selected = "Ntrk2trunc"),
+      selectInput("plot_type", "Select Plot Type:", 
+                  choices = c("FeaturePlot", "ViolinPlot", "DotPlot"), selected = "FeaturePlot"),
+      sliderInput("umap_point_size", "UMAP Point Size:", min = 0.1, max = 2, value = 1, step = 0.1)
+    ),
+    mainPanel(
+      plotOutput("seurat_plot", height = "600px")
+    )
+  )
+)
+
+# Define server
+server <- function(input, output) {
+  output$seurat_plot <- renderPlot({
+    req(input$gene)  # Ensure a gene is selected
+    gene <- input$gene
+    plot_type <- input$plot_type
+    
+    # Generate the selected plot
+    if (plot_type == "FeaturePlot") {
+      FeaturePlot(combined_seurat_trunc_subset, features = gene, pt.size = input$umap_point_size)
+    } else if (plot_type == "ViolinPlot") {
+      VlnPlot(combined_seurat_trunc_subset, features = gene)
+    } else if (plot_type == "DotPlot") {
+      DotPlot(combined_seurat_trunc_subset, features = gene) + RotatedAxis()
+    }
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
+```
+
+```{r}
+# Example: Updated RShiny app using the renamed object
+ui <- fluidPage(
+  titlePanel("Seurat Gene Comparison Viewer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("gene", "Select Another Gene:", choices = rownames(combined_seurat_trunc_subset), selected = "GeneA"),
+      sliderInput("dot_size", "Dot Size:", min = 1, max = 10, value = 5, step = 0.5)
+    ),
+    mainPanel(
+      plotOutput("dotplot", height = "600px")
+    )
+  )
+)
+
+server <- function(input, output) {
+  output$dotplot <- renderPlot({
+    req(input$gene)  # Ensure a gene is selected
+    genes_to_plot <- c("Ntrk2trunc", input$gene)  # Always include Ntrk2trunc
+    
+    # Generate the DotPlot
+    DotPlot(combined_seurat_trunc_subset, features = genes_to_plot, dot.scale = input$dot_size) + RotatedAxis()
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
+
+```
+```{r}
+ui <- fluidPage(
+  titlePanel("Seurat Gene Comparison Viewer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("gene", "Select Another Gene:", choices = rownames(combined_seurat_trunc_subset), selected = "GeneA"),
+      sliderInput("dot_size", "Dot Size:", min = 1, max = 10, value = 5, step = 0.5)
+    ),
+    mainPanel(
+      plotOutput("dotplot", height = "600px")
+    )
+  )
+)
+server <- function(input, output) {
+  output$dotplot <- renderPlot({
+    req(input$gene)
+
+    # Genes to plot
+    genes_to_plot <- c("Ntrk2trunc", input$gene)
+
+    # Generate DotPlot
+    plot <- DotPlot(combined_seurat_trunc_subset, features = genes_to_plot, dot.scale = input$dot_size) +
+      RotatedAxis()
+
+    # Add annotation for Ntrk2trunc
+    plot + annotate(
+      "text", x = 1, y = max(input$dot_size) + 0.2,
+      label = "Ntrk2trunc", color = "red", size = 5, fontface = "bold"
+      
+    )
+  })
+}
+scale_color_manual(values = c("Ntrk2trunc" = "red", "other_gene" = "blue"))
+shinyApp(ui = ui, server = server)
+
+
+```
+```{r}
+# Load required libraries
+library(shiny)
+library(Seurat)
+library(ggplot2)
+library(pheatmap)
+
+ui <- fluidPage(
+  titlePanel("Gene Co-expression and Probability Viewer"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        "celltype", "Select Cell Type:",
+        choices = if (!is.null(combined_seurat_trunc_subset)) unique(Idents(combined_seurat_trunc_subset)) else c(),
+        selected = "Neurons"
+      ),
+      selectInput(
+        "gene", "Select Gene to Compare:",
+        choices = if (!is.null(combined_seurat_trunc_subset)) rownames(GetAssayData(combined_seurat_trunc_subset, slot = "data")) else c(),
+        selected = "GeneA"
+      ),
+      numericInput(
+        "threshold", "Expression Threshold for Probability:",
+        value = 0.5, min = 0, max = 10
+      ),
+      selectInput(
+        "visualization", "Select Visualization Type:",
+        choices = c("Heatmap", "Scatterplot", "DotPlot", "Probability"),
+        selected = "Probability"
+      ),
+      numericInput(
+        "top_genes", "Number of Top Genes (Heatmap):",
+        value = 20, min = 5, max = 50
+      ),
+      selectInput(
+        "gene_filter", "Filter Genes By:",
+        choices = c("All Genes", "Highly Expressed", "Highly Variable"),
+        selected = "All Genes"
+      )
+    ),
+    mainPanel(
+      plotOutput("plot", height = "600px"),
+      verbatimTextOutput("probability_output")  # Text for probability
+    )
+  )
+)
+
+
+# Define Server
+server <- function(input, output) {
+  output$plot <- renderPlot({
+    # Subset Seurat object for selected cell type
+    subset_obj <- subset(combined_seurat_trunc_subset, idents = input$celltype)
+    
+    # Get normalized expression matrix
+    expr_matrix <- as.matrix(GetAssayData(subset_obj, slot = "data"))
+    
+    # Ensure the gene of interest is present
+    gene_of_interest <- "Ntrk2trunc"
+    if (!(gene_of_interest %in% rownames(expr_matrix))) {
+      stop(paste("Gene", gene_of_interest, "not found in the dataset."))
+    }
+    
+    # Calculate co-expression with Ntrk2trunc
+    gene_vector <- expr_matrix[gene_of_interest, ]
+    coexpression <- cor(t(expr_matrix), gene_vector, method = "pearson")
+    
+    # Convert to a data frame
+    coexpression_df <- data.frame(
+      Gene = rownames(expr_matrix),
+      Correlation = coexpression
+    )
+    coexpression_df <- coexpression_df[order(-coexpression_df$Correlation), ]
+    if (input$gene_filter == "Highly Expressed") {
+  # Filter by mean expression
+  gene_means <- rowMeans(expr_matrix)
+  highly_expressed_genes <- names(gene_means[gene_means > 0.5])
+  expr_matrix <- expr_matrix[highly_expressed_genes, ]
+}   else if (input$gene_filter == "Highly Variable") {
+  # Use highly variable genes
+  subset_obj <- FindVariableFeatures(subset_obj, selection.method = "vst", nfeatures = 2000)
+  variable_genes <- VariableFeatures(subset_obj)
+  expr_matrix <- expr_matrix[variable_genes, ]
+}
+
+    # Generate the plot based on user input
+    if (input$visualization == "Heatmap") {
+      # Top co-expressed genes for heatmap
+      top_genes <- head(coexpression_df$Gene, input$top_genes)
+      subset_matrix <- expr_matrix[top_genes, ]
+      coexpression_matrix <- cor(t(subset_matrix))
+      
+      # Plot heatmap
+      # Remove self-correlations by setting the diagonal to NA
+diag(coexpression_matrix) <- NA
+
+# Plot the heatmap
+pheatmap(
+  coexpression_matrix,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  main = "Top Co-expressed Genes with Ntrk2trunc",
+  color = colorRampPalette(c("blue", "white", "red"))(50),
+  na_col = "grey",  # Color for NA values
+  show_rownames = TRUE,
+  show_colnames = TRUE
+)
+
+      
+    } else if (input$visualization == "Scatterplot") {
+      # Fetch data for scatterplot
+      scatter_data <- FetchData(subset_obj, vars = c(gene_of_interest, input$gene))
+      
+      # Plot scatterplot
+      ggplot(scatter_data, aes(x = get(gene_of_interest), y = get(input$gene))) +
+        geom_point(alpha = 0.5) +
+        geom_smooth(method = "lm", color = "blue") +
+        labs(
+          title = paste("Co-expression of", gene_of_interest, "and", input$gene),
+          x = paste(gene_of_interest, "Expression"),
+          y = paste(input$gene, "Expression")
+        ) +
+        theme_minimal()
+      
+    } 
+  })
+  
+  # Add probability calculation for the gene of interest
+  output$probability_output <- renderText({
+    if (input$visualization == "Probability") {
+      subset_obj <- subset(combined_seurat_trunc_subset, idents = input$celltype)
+      expr_matrix <- as.matrix(GetAssayData(subset_obj, slot = "data"))
+      if (!(input$gene %in% rownames(expr_matrix))) {
+        return(paste("Gene", input$gene, "not found in the dataset."))
+      }
+      
+      # Calculate the probability (percentage of cells expressing above the threshold)
+      gene_vector <- expr_matrix[input$gene, ]
+      prob_cells <- mean(gene_vector > input$threshold) * 100  # Percentage
+      
+      # Output probability
+      paste(
+        "Probability of cells in", input$celltype, 
+        "expressing", input$gene, "above", input$threshold, ":",
+        round(prob_cells, 2), "%"
+      )
+    }
+  })
+}
+
+shinyApp(ui = ui, server = server)
+
+
+
+```

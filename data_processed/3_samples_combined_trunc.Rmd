@@ -1,0 +1,284 @@
+---
+title: "trunc"
+output: html_document
+date: '2024-11-18'
+---
+```{r}
+source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.R")
+
+save.image("combine_trunc")
+load("combine_trunc")
+
+```
+
+```{r}
+
+file_paths_trunc <- list.files("/data/gpfs/projects/punim2183/count_matrices", full.names = TRUE, pattern = "*_trunc*")
+count_matrices_trunc <- lapply(file_paths_trunc, readRDS)
+names(count_matrices_trunc) <- basename(file_paths_trunc)
+```
+
+```{r}
+
+# library(Matrix) 
+# combined_matrix_trunc <- do.call(cbind, count_matrices_trunc)
+# 
+# combined_seurat_trunc <- CreateSeuratObject(
+#   counts = count_matrices_trunc,  
+#   min.cells = 3,   # Filter out genes expressed in fewer than 3 cells
+#   min.features = 200 # Filter out cells expressing fewer than 200 genes
+# )
+# 
+# 
+# # Create a vector indicating the source of each cell
+# source_ids_trunc <- unlist(lapply(names(count_matrices_extracted_trunc), function(name) {
+#   rep(name, ncol(count_matrices_extracted_trunc[[name]]))
+# }))
+# 
+# # Add the source information to the Seurat object
+# combined_seurat_trunc$source <- source_ids_trunc
+# 
+# combined_seurat_trunc <- preprocess_seurat(combined_seurat_trunc)
+```
+
+```{r}
+
+count_matrices_extracted_trunc <- lapply(count_matrices_trunc, function(x) x[["cm"]])
+
+# Get the union of all gene names
+all_genes_trunc <- Reduce(union, lapply(count_matrices_extracted_trunc, rownames))
+
+# Align matrices to have the same rows
+aligned_matrices_trunc <- lapply(count_matrices_extracted_trunc, function(mat) {
+  missing_genes <- setdiff(all_genes_trunc, rownames(mat)) # Genes not in the matrix
+  # Create a sparse matrix for missing genes with zero counts
+  missing_mat <- Matrix::sparseMatrix(
+    i = integer(0), 
+    j = integer(0), 
+    dims = c(length(missing_genes), ncol(mat)),
+    dimnames = list(missing_genes, colnames(mat))
+  )
+  # Combine the truncinal matrix with the missing rows
+  mat_combined <- rbind(mat, missing_mat)
+  # Reorder rows to match all_genes_trunc
+  mat_combined[match(all_genes_trunc, rownames(mat_combined)), , drop = FALSE]
+})
+
+
+ # Check if all row names match
+ #all(sapply(aligned_matrices_trunc, rownames) == all_genes_trunc)
+  
+  
+combined_matrix_trunc <- do.call(cbind, aligned_matrices_trunc)
+
+colnames(combined_matrix_trunc) <- make.unique(colnames(combined_matrix_trunc))
+
+```
+
+## Create a Combined Seurat:
+```{r}
+# Create a Seurat object
+combined_seurat_trunc <- CreateSeuratObject(
+  counts = combined_matrix_trunc,
+  min.cells = 3,
+  min.features = 200
+)
+
+# Add batch information (source of each cell)
+combined_seurat_trunc$batch <- rep(names(count_matrices_trunc), 
+                                   times = sapply(aligned_matrices_trunc, ncol))
+
+
+# Normalize and scale the data
+combined_seurat_trunc <- NormalizeData(combined_seurat_trunc)
+combined_seurat_trunc <- FindVariableFeatures(combined_seurat_trunc)
+combined_seurat_trunc <- ScaleData(combined_seurat_trunc)
+
+# Run PCA
+combined_seurat_trunc <- RunPCA(combined_seurat_trunc)
+
+# Run UMAP
+combined_seurat_trunc <- RunUMAP(combined_seurat_trunc, dims = 1:30)
+
+
+```
+```{r}
+# Visualize by batch
+DimPlot(combined_seurat_trunc, reduction = "umap", group.by = "batch")
+ElbowPlot(combined_seurat_trunc)
+DimPlot(combined_seurat_trunc, reduction = "pca", group.by = "batch")
+
+```
+
+## Batch effect correction
+```{r}
+seurat_list <- SplitObject(combined_seurat_trunc, split.by = "batch")
+
+seurat_list <- lapply(seurat_list, function(obj) {
+  obj <- NormalizeData(obj)
+  obj <- FindVariableFeatures(obj)
+  return(obj)
+})
+
+anchors <- FindIntegrationAnchors(object.list = seurat_list, dims = 1:30)
+
+integrated_seurat <- IntegrateData(anchorset = anchors, dims = 1:30)
+
+integrated_seurat <- ScaleData(integrated_seurat)
+integrated_seurat <- RunPCA(integrated_seurat)
+integrated_seurat <- RunUMAP(integrated_seurat, dims = 1:30)
+DimPlot(integrated_seurat, reduction = "umap", group.by = "batch")
+
+
+```
+
+
+##Ntrk2 Expression
+```{r, fig.width= 10, fig.height= 8}
+
+Ntrk2trunc_exp <- calc_gene_exp(goi = "Ntrk2trunc", combined_seurat_trunc)
+
+FeaturePlot(combined_seurat_trunc, features = "Ntrk2trunc")
+
+FeaturePlot(combined_seurat_trunc, features = c("Map2", "Rbfox3", "Tubb3", "Mbp", "Olig1", "Olig2", "Gfap", "Aqp4", "Slc1a3"))
+
+DimPlot(combined_seurat_trunc)
+```
+
+## cluster cell types based on marker genes: 
+
+```{r}
+# Find markers for each cell type
+markers <- FindAllMarkers(
+  object = combined_seurat_trunc_subset,
+  only.pos = TRUE,       # Return only positively expressed genes
+  min.pct = 0.25,        # Minimum percentage of cells expressing the gene
+  logfc.threshold = 0.25 # Minimum log fold change
+)
+
+# View the top markers
+head(markers)
+
+
+# Get top 10 markers for each cell type
+top_markers <- markers %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC)
+
+# View the top markers
+top_markers
+
+# Filter top markers for two cell types
+neurons_markers <- top_markers %>% filter(cluster == "Neurons")
+astrocytes_markers <- top_markers %>% filter(cluster == "Astrocytes")
+
+DoHeatmap(combined_seurat_trunc_subset, features = unique(top_markers$gene)) + NoLegend()
+
+DotPlot(combined_seurat_trunc_subset, features = c("Ntrk2trunc", "Slc1a2")) + RotatedAxis()
+DoHeatmap(combined_seurat_trunc_subset, features = "Ntrk2trunc") + NoLegend()
+
+# Fetch expression data for Ntrk2trunc
+ntrk2trunc_expression <- FetchData(combined_seurat_trunc_subset, vars = "Ntrk2trunc")
+ntrk2trunc_expression
+
+
+# Fetch expression data for Ntrk2trunc and cluster identities
+ntrk2trunc_data <- FetchData(combined_seurat_trunc_subset, vars = c("Ntrk2trunc", "seurat_clusters"))
+head(ntrk2trunc_data)
+
+# Calculate stats grouped by cluster
+ntrk2trunc_summary <- ntrk2trunc_data %>%
+  group_by(seurat_clusters) %>%
+  summarise(
+    Min_Expression = min(Ntrk2trunc),
+    Max_Expression = max(Ntrk2trunc),
+    Avg_Expression = mean(Ntrk2trunc),
+    Cells_Expressing = sum(Ntrk2trunc > 0),  # Number of cells expressing the gene
+    Total_Cells = n()                        # Total number of cells in the cluster
+  )
+
+# View the summary table
+print(ntrk2trunc_summary)
+
+
+```
+
+```{r}
+new_cluster_ids <- c("Neurons", "Astrocytes", "Neurons", "Oligo", "Oligo", "Cell_type_2", "Cell_type_3", "Cell_type_4", "Cell_type_5", "Cell_type_6")
+names(new_cluster_ids) <- levels(combined_seurat_trunc)
+combined_seurat_trunc <- RenameIdents(combined_seurat_trunc, new_cluster_ids)
+table(Idents(combined_seurat_trunc))
+
+DimPlot(combined_seurat_trunc)
+
+# Subset to keep only specific cell types
+cell_types_of_interest <- c("Neurons", "Astrocytes", "Oligo")
+combined_seurat_trunc_subset <- subset(combined_seurat_trunc, idents = cell_types_of_interest)
+
+DimPlot(combined_seurat_trunc_subset, reduction = "umap", label = TRUE, label.size = 5)
+
+
+```
+
+
+```{r}
+# Average expression across all cells
+avg_exp <- AverageExpression(combined_seurat_trunc_subset)
+
+# Convert to data frame and add rownames as a column
+highly_expressed <- as.data.frame(avg_exp$RNA)
+highly_expressed$gene <- rownames(avg_exp$RNA)
+
+# Sort by average expression
+highly_expressed <- highly_expressed[order(-rowMeans(highly_expressed[, -ncol(highly_expressed)])), ]
+
+# View top 10 highly expressed genes
+head(highly_expressed, 10)
+
+
+```
+
+```{r}
+
+DotPlot(combined_seurat_trunc_subset, features = highly_expressed$gene[1:10]) +
+  scale_color_gradient(low = "lightblue", high = "red") +
+  RotatedAxis()
+
+
+# Visualize Ntrk2trunc expression on UMAP
+FeaturePlot(combined_seurat_trunc_subset, features = "Ntrk2trunc", cols = c("lightgrey", "blue", "red"))
+
+
+```
+
+```{r}
+
+avg_exp <- AverageExpression(combined_seurat_trunc_subset, features = "Ntrk2trunc")
+avg_exp$RNA["Ntrk2trunc", ]  # View average expression of Ntrk2trunc across clusters
+
+```
+
+#Clustering by celltype:
+```{r}
+# subset seurats based on celltype
+# neurons <- subset(combined_seurat_trunc_subset, idents = "Neurons")
+# astrocytes <- subset(combined_seurat_trunc_subset, idents = "Astrocytes")
+# oligos <- subset(combined_seurat_trunc_subset, idents = "Oligo")
+
+astrocytes_coexp_trunc <- get_coexpression_with_gene(combined_seurat_trunc_subset, "Ntrk2trunc", "Astrocytes")
+astrocytes_coexp_trunc
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
