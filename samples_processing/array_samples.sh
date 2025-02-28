@@ -16,7 +16,7 @@
 
 # Variables
 
-samples=("10X51_4" "10X22_2" "10X28_3")
+samples=("10X51_4.bam.1" "10X22_2.bam.1" "10X28_3.bam.1")
 
 mf_config="~/.Arcitecta/mflux.cfg"
 
@@ -33,43 +33,48 @@ gtf_file="/data/gpfs/projects/punim2183/samples_processing/trunc.gtf"
 for sample in "${samples[@]}"; do
     echo "Processing sample: $sample"
 
-module purge
+    module purge
 
-module load Java/17.0.6
-module load unimelb-mf-clients
-#fetch file from Mdediaflux:
-unimelb-mf-download --mf.config ~/.Arcitecta/mflux.cfg --out $(pwd) "/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples/$sample"
-module purge
+    module load Java/17.0.6
+    module load unimelb-mf-clients
+    
+    #fetch file from Mdediaflux:
+    unimelb-mf-download --mf.config ~/.Arcitecta/mflux.cfg --out $(pwd) "/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples/$sample"
+    module purge
+
+    sleep 5
+
+    module load Java/11.0.18
+    module load foss/2022a
+    module load dropEst/0.8.6
+
+    #run dropEst:
+    dropest -f -g "$gtf_file" -L e -c config.xml -o "$output_file" "$sample"
+    module purge
 
 
-module load Java/11.0.18
-module load foss/2022a
-module load dropEst/0.8.6
-#run dropEst:
-dropest -f -g "$gtf_file" -L e -c config.xml -o "$output_file" "$sample"
-module purge
 
+    # Rename the count matrix file
+    output_file_renamed="${output_file}_${sample}_$(basename $gtf_file).rds"
+    mv "$output_file" "$output_file_renamed"
 
+   # Upload to MediaFlux
+   module load Java/17.0.6
+   module load unimelb-mf-clients
 
-# Rename the count matrix file
-output_file_renamed="${output_file}_${sample}_$(basename $gtf_file)"
-mv "$output_file" "$output_file_renamed"
+   unimelb-mf-upload --mf.config "$mf_config" --csum-check --dest "$results_path" "$output_file_renamed"
 
-# Upload to MediaFlux
-module load Java/17.0.6
-module load unimelb-mf-clients
+  # Check if upload was successful before deleting the sample
+   if [ $? -eq 0 ]; then
+       echo "Upload successful. Deleting sample: $sample"
+       rm -rf "$(pwd)/$sample"
+   else
+       echo "Upload failed. Sample not deleted: $sample"
+   fi
 
-unimelb-mf-upload --mf.config "$mf_config" --csum-check --dest "$results_path" "$output_file_renamed"
+   echo "Finished processing sample: $sample"
 
-# Check if upload was successful before deleting the sample
-if [ $? -eq 0 ]; then
-    echo "Upload successful. Deleting sample: $sample"
-    rm -rf "$(pwd)/$sample"
-else
-    echo "Upload failed. Sample not deleted: $sample"
-fi
-
-echo "Finished processing sample: $sample"
+done
 
 # Log job's resource usage stats
 JOBID=${SLURM_JOB_ID}
