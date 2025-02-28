@@ -16,7 +16,7 @@
 
 # Variables
 
-samples=(10X51_4 10X22_2 10X28_3)
+samples=("10X51_4" "10X22_2" "10X28_3")
 
 mf_config="~/.Arcitecta/mflux.cfg"
 
@@ -26,11 +26,12 @@ results_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices"
 
 output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix"
 
-gtf_file="/data/gpfs/projects/punim2183/samples_processing/orig_s.gtf"
+gtf_file="/data/gpfs/projects/punim2183/samples_processing/trunc.gtf"
 
 
-# Get the sample corresponding to the array index
-sample="${samples[$SLURM_ARRAY_TASK_ID]}"
+# loop over each sample
+for sample in "${samples[@]}"; do
+    echo "Processing sample: $sample"
 
 module purge
 
@@ -51,7 +52,7 @@ module purge
 
 
 # Rename the count matrix file
-output_file_renamed="${output_file}_${sample}_$(basename "$gtf_file")"
+output_file_renamed="${output_file}_${sample}_$(basename $gtf_file)"
 mv "$output_file" "$output_file_renamed"
 
 # Upload to MediaFlux
