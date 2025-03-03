@@ -26,10 +26,41 @@ library(rtracklayer)
 #load("dropEst_output.RData")
 
 ```
-
+Write a function to read count matrices from a directory and create Seurat objects:
 
 ```{r}
-cell.counts_1 <- readRDS("/data/gpfs/projects/punim2183/dropEst_job/cell.counts_orig_gtf.rds")
+
+read_rds_to_seurat <- function(directory) {
+  rds_files <- list.files(directory, pattern = "\\.rds$", full.names = TRUE) # List all .rds files in the directory
+  
+  seurat_list <- list()
+  
+  for (file in rds_files) {
+    sample_name <- tools::file_path_sans_ext(basename(file)) # Extract sample name from filename (remove directory and extension)
+
+    
+    # Read the RDS file
+    count_matrix <- readRDS(file)
+    
+    seurat_obj <- CreateSeuratObject(counts = count_matrix$cm) # Create Seurat object (from the count_matrix 'cm' element)
+    seurat_list[[sample_name]] <- seurat_obj
+  }
+  
+  return(seurat_list)
+}
+
+seurat_objects_orig <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/orig")
+
+seurat_objects_trunc <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/trunc")
+
+seurat_objects_FL <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/FL")
+
+
+
+```
+
+```{r}
+cell.counts_1 <- readRDS("/data/gpfs/projects/punim2183/samples_processing/count_matrix.rds_10X04_2.bam.1_orig_s.gtf")
 
 seurat_obj_1 <- CreateSeuratObject(counts = cell.counts_1$cm)
 
