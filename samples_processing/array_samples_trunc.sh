@@ -15,7 +15,7 @@
 #load modules:
 
 # Variables
-
+~/.Arcitecta/mflux.cfg
 samples=("10X28_3.bam.1" "10X28_2.bam.1" "10X50_4.bam.1" "10X50_1.bam.1" "10X19_2.bam.1" "10X05_1.bam.1" "10X05_2.bam.1" "10X50_3.bam.1" "10X22_1.bam.1" "10X36_3.bam.1" "10X20_2.bam.1")
 
 mf_config="~/.Arcitecta/mflux.cfg"
@@ -62,7 +62,7 @@ for sample in "${samples[@]}"; do
    module load Java/17.0.6
    module load unimelb-mf-clients
 
-   unimelb-mf-upload --mf.config "$mf_config" --csum-check --dest "$results_path" "$output_file_renamed"
+   unimelb-mf-upload --mf.config ~/.Arcitecta/mflux.cfg --csum-check --dest "$results_path" "$output_file_renamed"
 
   # Check if upload was successful before deleting the sample
    if [ $? -eq 0 ]; then

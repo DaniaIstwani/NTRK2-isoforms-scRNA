@@ -24,7 +24,7 @@ sample_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples"
 
 results_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices"
 
-output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix"
+output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix.rds"
 
 gtf_file="/data/gpfs/projects/punim2183/samples_processing/trunc.gtf"
 
