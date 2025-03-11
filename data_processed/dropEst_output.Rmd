@@ -49,11 +49,11 @@ read_rds_to_seurat <- function(directory) {
   return(seurat_list)
 }
 
-seurat_objects_orig <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/orig")
+#seurat_objects_orig <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/orig")
 
-seurat_objects_trunc <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/trunc")
+seurat_objects_trunc <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/trunc")
 
-seurat_objects_FL <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/FL")
+#seurat_objects_FL <- read_rds_to_seurat("/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/FL")
 
 
 

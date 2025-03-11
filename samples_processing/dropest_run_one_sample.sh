@@ -14,7 +14,7 @@
 
 # Variables
 
-sample="10X04_2.bam.1"
+sample="10X51_4.bam.1"
 
 mf_config="~/.Arcitecta/mflux.cfg"
 
@@ -44,7 +44,7 @@ module purge
 
 
 #rename the count matrix rds
-output_file_renamed="${output_file}_${sample}_$(basename $gtf_file)"
+output_file_renamed="${output_file}_${sample}_$(basename $gtf_file).rds"
 mv "$output_file" "$output_file_renamed"
 
 

@@ -1,0 +1,28 @@
+#!/bin/bash
+#SBATCH --job-name=dropest_job        
+#SBATCH --output=dropest_output.txt    
+#SBATCH --error=dropest_error.txt      
+#SBATCH --nodes=1                     
+#SBATCH --ntasks-per-node=1            
+#SBATCH --cpus-per-task=1              
+#SBATCH --mem=32G                     
+#SBATCH --time=1:00:00                
+#SBATCH --partition=bigmem            
+
+module load foss/2022a
+module load dropEst/0.8.6
+module load unimelb-mf-clients
+
+dropest -f -g ./gencode.vM10.orig_s.gtf -L e -c ./config.xml ./10X52_2.bam.1
+
+#Log this job's resource usage stats
+
+JOBID=$SLURM_JOB_ID
+
+if [ ! -z $SLURM_ARRAY_JOB_ID ]; then
+
+  JOBID="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+
+fi
+
+my-job-stats -a -n -j $JOBID

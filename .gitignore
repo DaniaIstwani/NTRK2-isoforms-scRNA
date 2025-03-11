@@ -1,0 +1,39 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.gtf
+dropEst_output.Rmd
+*.txt
+*.rds
+*.bam.1
+UTR_test_1/
+UTR_test_2/
+count_matrices/
+data_processed/*
+!data_processed/*.Rmd
+!data_processed/*.R
+!data_processed/*.md
+data_processedfiltered_sample_ids.xlsx
+dropEst_job/
+dropEst_job_1/
+dropEst_job_2/
+dropEst_job_3/
+dropEst_job_4/
+job_1_mod/
+punim2183.Rproj
+samples_processing/array_samples.sh.save
+samples_processing/array_try.sh
+samples_processing/count_matrix.rds_10X04_2.bam.1_orig_s.gtf
+samples_processing/count_matrix.rds_10X04_4.bam.1_orig_s.gtf
+samples_processing/dropest_error.txt
+samples_processing/dropest_output.txt
+samples_processing/est_config.dump.xml
+samples_processing/est_main.log
+samples_processing/gencode.vM10.FL_s.gtf
+samples_processing/gencode.vM10.both_s.gtf
+samples_processing/gencode.vM10.trunc_s.gtf
+	samples_processing/hf
+	samples_processing/orig_s.gtf
+	samples_processing/test_modules
+	samples_processing/tests/

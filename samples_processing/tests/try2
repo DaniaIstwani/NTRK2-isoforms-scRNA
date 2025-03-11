@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Load necessary modules
+module load foss/2022a
+module load dropEst/0.8.6
+module load unimelb-mf-clients
+
+# Define directories
+INPUT_DIR="/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples"
+OUTPUT_DIR="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices"
+LOG_DIR="/projects/proj-6030_ntrk2isoforms-1128.4.1092/logs"
+CONFIG_FILE="$(pwd)./config.xml"
+SAMPLE_NAME="10X52_2.bam.1"
+LOCAL_BAM_FILE="$(pwd)/current_sample.bam"
+RESULT_RDS_DIR="$(pwd)/results_rds"
+MF_CONFIG="~/.Arcitecta/mflux.cfg"  # Replace with actual path
+
+# Create local directories
+mkdir -p "$OUTPUT_DIR" "$LOG_DIR" "$RESULT_RDS_DIR"
+
+# Fetch BAM file from Mediaflux
+unimelb-mf-download --mf.config "$MF_CONFIG" --out "$(pwd)" "$INPUT_DIR/$SAMPLE_NAME"
+
+if [ $? -ne 0 ] || [ ! -f "$LOCAL_BAM_FILE" ]; then
+    echo "Error: Failed to fetch BAM file: $SAMPLE_NAME" >&2
+    exit 1
+fi
+
+# Define GTF files
+GTF_FILES=("gencode.vM10.orig_s.gtf" "gencode.vM10.both_s.gtf" "gencode.vM10.FL_s.gtf" "gencode.vM10.trunc_s.gtf")
+
+# Process each GTF file
+for GTF in "${GTF_FILES[@]}"; do
+    LABEL=$(basename "$GTF" | cut -d '.' -f 2)
+    dropest -f -g "$GTF" -L e -c "$CONFIG_FILE" "$LOCAL_BAM_FILE" -o "$RESULT_RDS_DIR/$SAMPLE_NAME.$LABEL.rds" &> "$LOG_DIR/$SAMPLE_NAME.$LABEL.log"
+    
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to process GTF $LABEL for sample $SAMPLE_NAME. Check log: $LOG_DIR/$SAMPLE_NAME.$LABEL.log" >&2
+    else
+        echo "GTF $LABEL processed successfully for sample $SAMPLE_NAME."
+    fi
+done
+
+# Upload results back to Mediaflux
+unimelb-mf-upload --csum-check --dest "$OUTPUT_DIR/$SAMPLE_NAME.results" "$RESULT_RDS_DIR"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to upload results for sample $SAMPLE_NAME" >&2
+    exit 1
+fi
+
+# Clean up
+rm -f "$LOCAL_BAM_FILE"
+rm -rf "$RESULT_RDS_DIR"
+
+echo "Processing complete for sample: $SAMPLE_NAME"

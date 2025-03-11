@@ -1,32 +1,32 @@
 #!/bin/bash
-#SBATCH --job-name=dropest_job 
-#SBATCH --output=dropest_output.txt
-#SBATCH --error=dropest_error.txt
+#SBATCH --job-name=dropest_job_orig 
+#SBATCH --output=dropest_output_orig.txt
+#SBATCH --error=dropest_error_orig.txt
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=32G
-#SBATCH --time=1:00:00
+#SBATCH --time=3:00:00
 #SBATCH --partition=bigmem
 
-#SBATCH --array=0-2
+#SBATCH --array=0-15
 
 
 #load modules:
 
 # Variables
 
-samples=("10X51_4.bam.1" "10X22_2.bam.1" "10X28_3.bam.1")
+samples=("10X52_1.bam.1" "10X52_3.bam.1" "10X52_4.bam.1" "10X49_1.bam.1" "10X52_2.bam.1" "10X50_3.bam.1" "10X22_1.bam.1" "10X36_3.bam.1" "10X20_2.bam.1" "10X24_2.bam.1" "10X06_2.bam.1" "10X06_1.bam.1" "10X38_3.bam.1" "10X87_2.bam.1" "10X87_1.bam.1" "10X86_3.bam.1")
 
 mf_config="~/.Arcitecta/mflux.cfg"
 
 sample_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples"
 
-results_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices"
+results_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices/cm_orig"
 
-output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix.rds"
+output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/orig/count_matrix.rds"
 
-gtf_file="/data/gpfs/projects/punim2183/samples_processing/trunc.gtf"
+gtf_file="/data/gpfs/projects/punim2183/samples_processing/orig.gtf"
 
 
 # loop over each sample

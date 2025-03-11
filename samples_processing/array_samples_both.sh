@@ -1,32 +1,31 @@
 #!/bin/bash
-#SBATCH --job-name=dropest_job_trunc
-#SBATCH --output=dropest_output_trunc.txt
-#SBATCH --error=dropest_error_trunc.txt
+#SBATCH --job-name=dropest_job_both 
+#SBATCH --output=dropest_output_both.txt
+#SBATCH --error=dropest_error_both.txt
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=32G
-#SBATCH --time=6:00:00
+#SBATCH --time=11:00:00
 #SBATCH --partition=bigmem
 
-#SBATCH --array=0-17
+#SBATCH --array=0-21
 
 
 #load modules:
 
-# Variables
-~/.Arcitecta/mflux.cfg
-samples=("10X52_1.bam.1" "10X52_3.bam.1" "10X52_4.bam.1" "10X49_1.bam.1" "10X52_2.bam.1" "10X24_2.bam.1" "10X06_2.bam.1" "10X35_2.bam.1" "10X20_1.bam.1" "10X36_2.bam.1" "10X36_1.bam.1" "10X38_2.bam.1" "10X35_1.bam.1" "10X06_1.bam.1" "10X07_1.bam.1" "10X38_1.bam.1" "10X87_2.bam.1" "10X87_1.bam.1")
+# Variables:
+samples=("10X49_1.bam.1" "10X52_2.bam.1" "10X05_2.bam.1" "10X50_3.bam.1" "10X22_1.bam.1" "10X36_3.bam.1" "10X20_2.bam.1" "10X24_2.bam.1" "10X06_2.bam.1" "10X35_2.bam.1" "10X20_1.bam.1" "10X36_2.bam.1" "10X36_1.bam.1" "10X38_2.bam.1" "10X35_1.bam.1" "10X06_1.bam.1" "10X07_1.bam.1" "10X38_1.bam.1" "10X38_3.bam.1" "10X87_2.bam.1" "10X87_1.bam.1" "10X86_3.bam.1")
 
 mf_config="~/.Arcitecta/mflux.cfg"
 
 sample_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples"
 
-results_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices/cm_trunc"
+results_path="/projects/proj-6030_ntrk2isoforms-1128.4.1092/count_matrices/cm_both"
 
-output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/trunc/count_matrix.rds"
+output_file="/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both/count_matrix.rds"
 
-gtf_file="/data/gpfs/projects/punim2183/samples_processing/trunc.gtf"
+gtf_file="/data/gpfs/projects/punim2183/samples_processing/both.gtf"
 
 
 # loop over each sample
@@ -62,7 +61,7 @@ for sample in "${samples[@]}"; do
    module load Java/17.0.6
    module load unimelb-mf-clients
 
-   unimelb-mf-upload --mf.config ~/.Arcitecta/mflux.cfg --csum-check --dest "$results_path" "$output_file_renamed"
+   unimelb-mf-upload --mf.config "$mf_config" --csum-check --dest "$results_path" "$output_file_renamed"
 
   # Check if upload was successful before deleting the sample
    if [ $? -eq 0 ]; then

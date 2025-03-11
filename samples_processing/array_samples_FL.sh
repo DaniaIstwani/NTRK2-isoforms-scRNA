@@ -1,22 +1,22 @@
 #!/bin/bash
-#SBATCH --job-name=dropest_job 
+#SBATCH --job-name=dropest_job_FL 
 #SBATCH --output=dropest_output_FL.txt
 #SBATCH --error=dropest_error_FL.txt
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=32G
-#SBATCH --time=2:00:00
+#SBATCH --time=7:30:00
 #SBATCH --partition=bigmem
 
-#SBATCH --array=0-4
+#SBATCH --array=0-21
 
 
 #load modules:
 
 # Variables
 
-samples=("10X05_2.bam.1" "10X50_3.bam.1" "10X22_1.bam.1" "10X36_3.bam.1" "10X20_2.bam.1")
+samples=("10X52_1.bam.1" "10X52_3.bam.1" "10X50_1.bam.1" "10X19_2.bam.1" "10X05_1.bam.1" "10X52_4.bam.1" "10X49_1.bam.1" "10X52_2.bam.1" "10X20_2.bam.1" "10X24_2.bam.1" "10X06_2.bam.1" "10X35_2.bam.1" "10X20_1.bam.1" "10X36_2.bam.1" "10X36_1.bam.1" "10X38_2.bam.1" "10X35_1.bam.1" "10X06_1.bam.1" "10X07_1.bam.1" "10X38_1.bam.1" "10X87_2.bam.1" "10X87_1.bam.1")
 
 mf_config="~/.Arcitecta/mflux.cfg"
 

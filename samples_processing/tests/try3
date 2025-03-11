@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Load necessary modules
+module load foss/2022a
+module load dropEst/0.8.6
+module load unimelb-mf-clients
+
+# Define directories
+INPUT_DIR="/projects/proj-6030_ntrk2isoforms-1128.4.1092/samples"  # Path to the input samples on mf
+OUTPUT_DIR="$(pwd)/count_matrices"  # Output directory (local writable directory)
+LOG_DIR="$(pwd)/logs"  # Log directory (local writable directory)
+CONFIG_FILE="./config.xml"  # Configuration file for DropEst
+SAMPLE_NAME="10X52_2.bam.1"  # Name of the specific sample to process
+LOCAL_BAM_FILE="$(pwd)/current_sample.bam"  # Local temporary BAM file
+RESULT_RDS_DIR="$(pwd)/results_rds"  # Directory for local RDS results
+MF_CONFIG="/home/<your-username>/.Arcitecta/mflux.cfg"  # Full path to Mediaflux configuration
+
+# Create local directories if they do not exist
+mkdir -p "$OUTPUT_DIR"
+mkdir -p "$LOG_DIR"
+mkdir -p "$RESULT_RDS_DIR"
+
+# Fetch the specific BAM file from Mediaflux
+unimelb-mf-download --mf.config "$MF_CONFIG" --out "$(pwd)" "$INPUT_DIR/$SAMPLE_NAME"
+
+# Check if the fetch was successful
+if [ ! -f "$LOCAL_BAM_FILE" ]; then
+    echo "Failed to fetch BAM file: $SAMPLE_NAME"
+    exit 1
+fi
+
+# Define GTF files
+GTF_FILES=("gencode.vM10.orig_s.gtf" "gencode.vM10.both_s.gtf" "gencode.vM10.FL_s.gtf" "gencode.vM10.trunc_s.gtf")
+
+# Loop through each GTF file
+for GTF in "${GTF_FILES[@]}"; do
+    LABEL=$(basename "$GTF" | cut -d '.' -f 2)
+    dropest -f -g "$GTF" -L e -c "$CONFIG_FILE" "$LOCAL_BAM_FILE" -o "$RESULT_RDS_DIR/$SAMPLE_NAME.$LABEL.rds" &> "$LOG_DIR/$SAMPLE_NAME.$LABEL.log"
+
+    if [ $? -eq 0 ]; then
+        echo "GTF $LABEL processed successfully for sample $SAMPLE_NAME."
+    else
+        echo "Error processing GTF $LABEL for sample $SAMPLE_NAME. Check log: $LOG_DIR/$SAMPLE_NAME.$LABEL.log"
+    fi
+done
+
+# Upload RDS results back to Mediaflux
+unimelb-mf-upload --csum-check --dest "$OUTPUT_DIR/$SAMPLE_NAME.results" "$RESULT_RDS_DIR"
+
+# Clean up local temporary files
+rm -f "$LOCAL_BAM_FILE"
+rm -rf "$RESULT_RDS_DIR"
+
+echo "Processing complete for sample: $SAMPLE_NAME"
+

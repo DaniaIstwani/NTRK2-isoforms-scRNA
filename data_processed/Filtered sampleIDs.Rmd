@@ -3,6 +3,7 @@ title: "data filtering"
 output: html_document
 date: '2024-04-08'
 ---
+
 ```{r}
 # To save the entire workspace:
 save.image(file = "my_workspace.RData")
@@ -79,21 +80,39 @@ avg_expression_values
 sorted_tissues <- sort(avg_expression_values, decreasing = TRUE)  # Sort in descending order
 
 # Step 3: Get the top 5 tissues
-top_10_tissues <- head(sorted_tissues, 10)
+top_12_tissues <- head(sorted_tissues, 12)
+top_12_tissues <- as.data.frame(top_12_tissues)
+
+row.names(top_12_tissues)
+paste(rownames(top_15_tissues), collapse = ", ")
+
+
+
+top_12_tissues_vector <- setNames(as.numeric(top_12_tissues[, 1]), rownames(top_12_tissues))
+barplot(top_12_tissues_vector, 
+        main = "Top 12 Tissues by Ntrk2 Expression", 
+        ylab = "Average Ntrk2 Expression", 
+        col = "skyblue", 
+        las = 2)  # Rotate labels
 
 # Step 4: Plot the result using a bar plot
-barplot(top_10_tissues, 
-        names.arg = names(top_10_tissues),  # Use the tissue names as labels
-        main = "Top 10 Tissues by Ntrk2 Expression", 
-        ylab = "Average Ntrk2 Expression", 
-        col = "skyblue", las = 2)  # Rotate labels for clarity
+# barplot(top_12_tissues, 
+#         names.arg = names(top_12_tissues),  # Use the tissue names as labels
+#         main = "Top 12 Tissues by Ntrk2 Expression", 
+#         ylab = "Average Ntrk2 Expression", 
+#         col = "skyblue", las = 2)  # Rotate labels for clarity
 
-selected_samples <- unique(mouse_cortex_data@meta.data$SampleID[mouse_cortex_data@meta.data$Tissue %in% c("Ctx1.5","Ctx3", "Ctx2", "Ctx1", "CA1", "Hypoth", "HC")])
+selected_samples <- unique(mouse_cortex_data@meta.data$SampleID[mouse_cortex_data@meta.data$Tissue %in% c("Hypoth", "Ctx3", "Ctx1.5", "Ctx2", "MBv", "Amygd", "HC", "OB", "MBd", "Ctx1", "StriatDor", "CA1")])
 
 print(selected_samples)
 length(selected_samples)
 
+# "Hypoth","Ctx3", "Ctx1.5", "Ctx2", "MBv", "Amygd", "HC", "OB", "MBd","Ctx1", "StriatDor", "CA1", "DRG", "StriatVent","Thal"
+
+
+#top 10 tissues resulted in 22 samples, top 12 gave 71 and top 15 gave ~ 83
 ```
+
 ## CS-CORE:
 
 ```{r}
@@ -218,9 +237,6 @@ plot(dend, main = "Hierarchical Clustering Dendrogram")
 
 ```
 
-
-
-
 creating a seurat object with a minimum number of cells of each type of interest
 
 ```{r}
@@ -294,8 +310,8 @@ ggplot(target_counts_df, aes(x = Sample, y = Count, fill = CellType)) +
 
 ```
 
-
 Filter cells by minimum count function:
+
 ```{r}
 
 filter_cells_by_min_count <- function(data, min_astrocyte_count=200, min_neuron_count=200, min_oligo_count=200) {
@@ -366,7 +382,6 @@ filter_cells_by_min_count <- function(data, min_astrocyte_count=200, min_neuron_
 
 ```
 
-
 ```{r}
 
 filter_cells_by_uniform_min_count <- function(data, min_cell_count=200) {
@@ -428,7 +443,9 @@ filter_cells_by_uniform_min_count <- function(data, min_cell_count=200) {
 filter_cells_by_uniform_min_count(mouse_cortex_data, 50)
 
 ```
+
 function that takes one minimum number of cell counts for all celltypes:
+
 ```{r}
 filter_cells_by_uniform_min_count <- function(data, min_cell_count=200) {
   # Summarize cell counts by SampleID and Class
@@ -489,11 +506,7 @@ Im using this filtration to intersect it with tissue specific Ntrk2 expression: 
 
 selected_samples: taking average expression of the Ntrk2 gene across different tissues, and get the top 10 tissues with the highest expression. After that, selected samples that belong to specific tissues (such as Ctx1.5, Ctx3, Ctx2, Ctx1, CA1, Hypoth, HC) and stored them in selected_samples.
 
-samples_to_keep:
-Threshold: The minimum expression level of the gene that we are interested in (0.8 in this case).
-Percentage Threshold: The percentage of cells in a sample that must have an expression level above the threshold to keep the sample (50% in this case).
-Cell Types of Interest: The cell types you are focusing on (Neurons, Astrocytes, and Oligos).
-
+samples_to_keep: Threshold: The minimum expression level of the gene that we are interested in (0.8 in this case). Percentage Threshold: The percentage of cells in a sample that must have an expression level above the threshold to keep the sample (50% in this case). Cell Types of Interest: The cell types you are focusing on (Neurons, Astrocytes, and Oligos).
 
 The common_samples represent the subset of sample IDs that are both part of the selected_samples (from specific tissue types like Ctx1.5, Ctx3, Ctx2, Ctx1, CA1, Hypoth, HC) and meet the criterion of having at least 50% of the cells from the cell types Neurons, Astrocytes, or Oligos expressing the gene Ntrk2 at levels greater than the threshold of 0.8. These samples are of particular interest due to their high expression of Ntrk2 across selected cell types and tissues.
 
@@ -584,6 +597,7 @@ ggplot(main_tissues, aes(x = SampleID, y = n, fill = Tissue)) +
 
 
 ```
+
 Correlation analysis in these common smaples:
 
 ```{r}
@@ -633,7 +647,9 @@ pheatmap(cor_matrix,
 
 
 ```
+
 Using CS-core
+
 ```{r}
 mean_exp = rowMeans(common_astrocytes@assays$RNA@counts/common_astrocytes$nCount_RNA)
 genes_selected = names(sort.int(mean_exp, decreasing = T))[1:5000] # select top 5000 genes out of the 27998
@@ -747,7 +763,6 @@ for (sample_id in sample_ids) {
 
 ```
 
-
 ```{r}
 #this is averaging for all celltypes in each sample
 
@@ -803,9 +818,6 @@ high_ntrk_Violn_plot
 
 ```
 
-
-
-
 ```{r}
 
 # Initialize an empty data frame to store results
@@ -860,7 +872,6 @@ high_ntrk_Violn_plot2
 
 ```
 
-
 ```{r}
 
 
@@ -906,9 +917,7 @@ print(ntrk2_expression_per_sample)
 
 ```
 
-
 ```{r}
-```{r, fig.width=15, fig.height=8}
 # Calculate intersections for different conditions
 intersected_samples_500a <- intersect(min_500$Sample, by_gene_1_50$SampleID)
 intersected_samples_500b <- intersect(min_500$Sample, by_gene_2_50$SampleID)
@@ -967,6 +976,7 @@ line_plot + facet_wrap(~ GeneExpressionCondition)
 
 
 ```
+
 ```{r}
 
 # Create the data frame
@@ -1041,8 +1051,6 @@ print(plot_percentage)
 
 ```
 
-
-
 Tutorial:
 
 ```{r}
@@ -1050,7 +1058,6 @@ Tutorial:
 
 
 ```
-
 
 ```{r}
 install.packages("edgeR")
