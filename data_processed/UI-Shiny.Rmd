@@ -5,270 +5,382 @@ date: '2024-11-19'
 ---
 
 ```{r}
-# Load libraries
+install.packages("shiny")
+install.packages("Seurat")
+install.packages("ggplot2")
+install.packages("patchwork")  
+
 library(shiny)
 library(Seurat)
 library(ggplot2)
+library(patchwork)
+
+```
+
+
+```{r}
+
+# library(shiny)
+# library(Seurat)
+# library(ggplot2)
+# library(patchwork)
+# library(shinycssloaders)
+# library(future)
+# library(promises)
+
+plan(multisession)  # Enable parallel processing
+
+seurat_dir <- "/data/gpfs/projects/punim2183/data_processed/"
+seurat_objects <- c(
+  "Both_Isoforms_Seurat.rds",
+  "combined_seurat_FL.rds",
+  "combined_seurat_trunc.rds"
+)
+
+# Global cache to store metadata only
+seurat_metadata_cache <- new.env()
+
+ui <- fluidPage(
+  titlePanel("Seurat Object Explorer"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("object1", "Choose Seurat Object 1", choices = seurat_objects),
+      selectInput("object2", "Choose Seurat Object 2", choices = seurat_objects),
+      textInput ("gene1", "Select Gene for Object 1", value = ""),
+      textInput("gene2", "Select Gene for Object 2", value = ""),
+      #selectInput("cell_type", "Choose Cell Type(s)", choices = NULL, multiple = TRUE),
+      radioButtons("plot_type", "Choose Plot Type",
+                   choices = c("Feature Plot", "Violin Plot", "Both"),
+                   selected = "Feature Plot"),
+      actionButton("plot", "Generate Data")
+    ),
+    mainPanel(
+      verbatimTextOutput("gene_expression1"),
+      verbatimTextOutput("gene_expression2")
+      # conditionalPanel(
+      #   condition = "input.plot_type == 'Feature Plot' || input.plot_type == 'Both'",
+      #   h4("Feature Plot"),
+      #   fluidRow(
+      #     column(6, withSpinner(plotOutput("feature_plot1"))),
+      #     column(6, withSpinner(plotOutput("feature_plot2")))
+      #   )
+      # ),
+      # conditionalPanel(
+      #   condition = "input.plot_type == 'Violin Plot' || input.plot_type == 'Both'",
+      #   h4("Violin Plot"),
+      #   fluidRow(
+      #     column(6, withSpinner(plotOutput("violin_plot1"))),
+      #     column(6, withSpinner(plotOutput("violin_plot2")))
+      #   )
+      # )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  loadSeuratMetadata <- function(object_name) {
+    object_path <- file.path(seurat_dir, object_name)
+    if (!exists(object_name, envir = seurat_metadata_cache) && file.exists(object_path)) {
+      seurat_obj <- readRDS(object_path)
+      metadata <-
+      genes = rownames(seurat_obj[["RNA"]]@data) 
+      assign(object_name, metadata, envir = seurat_metadata_cache)
+    }
+    get(object_name, envir = seurat_metadata_cache)
+  }
+  
+  observeEvent(input$object1, {
+    req(input$object1)
+    showNotification(paste("Loading metadata for", input$object1, "..."), type = "message")
+    future({ loadSeuratMetadata(input$object1) }) %...>% {
+      metadata <- .
+      updateSelectInput(session, "gene1", choices = metadata$genes)
+      showNotification(paste("Metadata for", input$object1, "loaded successfully!"), type = "message")
+    } %...!% {
+      showNotification("Error loading metadata!", type = "error")
+    }
+  })
+  
+  observeEvent(input$object2, {
+    req(input$object2)
+    showNotification(paste("Loading metadata for", input$object2, "..."), type = "message")
+    future({ loadSeuratMetadata(input$object2) }) %...>% {
+      metadata <- .
+      updateSelectInput(session, "gene2", choices = metadata$genes)
+      showNotification(paste("Metadata for", input$object2, "loaded successfully!"), type = "message")
+    } %...!% {
+      showNotification("Error loading metadata!", type = "error")
+    }
+  })
+  
+  observeEvent(input$plot, {
+    req(input$object1, input$gene1)
+    
+    future({
+      object_path1 <- file.path(seurat_dir, input$object1)
+      seurat1 <- readRDS(object_path1)
+      #filtered_seurat1 <- subset(seurat1, subset = cell_type %in% input$cell_type)
+      gene_expression1 <- FetchData(seurat1, vars = input$gene1)
+      gc()
+      
+      seurat2 <- NULL
+      gene_expression2 <- NULL
+      if (!is.null(input$object2)) {
+        object_path2 <- file.path(seurat_dir, input$object2)
+        seurat2 <- readRDS(object_path2)
+        #filtered_seurat2 <- subset(seurat2, subset = cell_type %in% input$cell_type)
+        gene_expression2 <- FetchData(seurat2, vars = input$gene2)
+        gc()
+      }
+      
+      list(gene_expression1, gene_expression2)
+    }) %...>% { data ->
+      output$gene_expression1 <- renderPrint({ data[[1]] })
+      output$gene_expression2 <- renderPrint({ data[[2]] })
+    }
+  })
+}
+
+shinyApp(ui = ui, server = server)
+
+
+```
+
+```{r}
+library(shiny)
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+
+# Define the directory containing Seurat objects
+seurat_dir <- "/data/gpfs/projects/punim2183/data_processed/"
+
+# List all .RDS files in the directory
+seurat_files <- list.files(seurat_dir, pattern = "\\.RDS$", full.names = FALSE)
 
 # Define UI
 ui <- fluidPage(
-  titlePanel("Seurat Gene Expression Viewer"),
+  titlePanel("Seurat Object Explorer"),
   sidebarLayout(
     sidebarPanel(
-      selectInput("gene", "Select Gene:", choices = rownames(combined_seurat_trunc_subset), selected = "Ntrk2trunc"),
-      selectInput("plot_type", "Select Plot Type:", 
-                  choices = c("FeaturePlot", "ViolinPlot", "DotPlot"), selected = "FeaturePlot"),
-      sliderInput("umap_point_size", "UMAP Point Size:", min = 0.1, max = 2, value = 1, step = 0.1)
+      selectInput("object1", "Choose Seurat Object 1", choices = seurat_files),
+      selectInput("object2", "Choose Seurat Object 2", choices = seurat_files),
+      textInput("gene1", "Enter Gene for Object 1", value = ""),
+      textInput("gene2", "Enter Gene for Object 2", value = ""),
+      selectInput("cell_type", "Choose Cell Type", choices = NULL),
+      radioButtons("plot_type", "Choose Plot Type",
+                   choices = c("Feature Plot", "Violin Plot", "Both"),
+                   selected = "Both"),
+      actionButton("plot", "Generate Plots")
     ),
     mainPanel(
-      plotOutput("seurat_plot", height = "600px")
+      conditionalPanel(
+        condition = "input.plot_type == 'Feature Plot' || input.plot_type == 'Both'",
+        h4("Feature Plot"),
+        fluidRow(
+          column(6, plotOutput("feature_plot1")),
+          column(6, plotOutput("feature_plot2"))
+        )
+      ),
+      conditionalPanel(
+        condition = "input.plot_type == 'Violin Plot' || input.plot_type == 'Both'",
+        h4("Violin Plot"),
+        fluidRow(
+          column(6, plotOutput("violin_plot1")),
+          column(6, plotOutput("violin_plot2"))
+        )
+      )
     )
   )
 )
 
-# Define server
-server <- function(input, output) {
-  output$seurat_plot <- renderPlot({
-    req(input$gene)  # Ensure a gene is selected
-    gene <- input$gene
-    plot_type <- input$plot_type
+# Define server logic
+server <- function(input, output, session) {
+  # Reactive values to store Seurat objects and their names
+  seurat1 <- reactiveVal(NULL)
+  seurat2 <- reactiveVal(NULL)
+  object1_name <- reactiveVal("Object 1")
+  object2_name <- reactiveVal("Object 2")
+  
+  # Load Seurat objects when selected
+  observeEvent(input$object1, {
+    req(input$object1)
+    seurat1(readRDS(file.path(seurat_dir, input$object1)))
+    object1_name(input$object1)  # Set object name to the selected file name
+    updateSelectInput(session, "cell_type", choices = unique(seurat1()$cell_type))  # Replace "cell_type" with your metadata column
+  })
+  
+  observeEvent(input$object2, {
+    req(input$object2)
+    seurat2(readRDS(file.path(seurat_dir, input$object2)))
+    object2_name(input$object2)  # Set object name to the selected file name
+  })
+  
+  # Generate plots when the button is clicked
+  observeEvent(input$plot, {
+    req(seurat1(), input$gene1)
     
-    # Generate the selected plot
-    if (plot_type == "FeaturePlot") {
-      FeaturePlot(combined_seurat_trunc_subset, features = gene, pt.size = input$umap_point_size)
-    } else if (plot_type == "ViolinPlot") {
-      VlnPlot(combined_seurat_trunc_subset, features = gene)
-    } else if (plot_type == "DotPlot") {
-      DotPlot(combined_seurat_trunc_subset, features = gene) + RotatedAxis()
+    # Feature Plots
+    if (input$plot_type == "Feature Plot" || input$plot_type == "Both") {
+      output$feature_plot1 <- renderPlot({
+        FeaturePlot(seurat1(), features = input$gene1) + ggtitle(paste(object1_name(), "-", input$gene1))
+      })
+      
+      output$feature_plot2 <- renderPlot({
+        if (!is.null(seurat2())) {
+          FeaturePlot(seurat2(), features = input$gene2) + ggtitle(paste(object2_name(), "-", input$gene2))
+        }
+      })
+    }
+    
+    # Violin Plots
+    if (input$plot_type == "Violin Plot" || input$plot_type == "Both") {
+      output$violin_plot1 <- renderPlot({
+        VlnPlot(seurat1(), features = input$gene1, group.by = input$cell_type) + ggtitle(paste(object1_name(), "-", input$gene1))
+      })
+      
+      output$violin_plot2 <- renderPlot({
+        if (!is.null(seurat2())) {
+          VlnPlot(seurat2(), features = input$gene2, group.by = input$cell_type) + ggtitle(paste(object2_name(), "-", input$gene2))
+        }
+      })
     }
   })
 }
 
-# Run the application
+# Run the app
 shinyApp(ui = ui, server = server)
 
 ```
 
+
 ```{r}
-# Example: Updated RShiny app using the renamed object
-ui <- fluidPage(
-  titlePanel("Seurat Gene Comparison Viewer"),
-  sidebarLayout(
-    sidebarPanel(
-      selectInput("gene", "Select Another Gene:", choices = rownames(combined_seurat_trunc_subset), selected = "GeneA"),
-      sliderInput("dot_size", "Dot Size:", min = 1, max = 10, value = 5, step = 0.5)
-    ),
-    mainPanel(
-      plotOutput("dotplot", height = "600px")
-    )
-  )
-)
-
-server <- function(input, output) {
-  output$dotplot <- renderPlot({
-    req(input$gene)  # Ensure a gene is selected
-    genes_to_plot <- c("Ntrk2trunc", input$gene)  # Always include Ntrk2trunc
-    
-    # Generate the DotPlot
-    DotPlot(combined_seurat_trunc_subset, features = genes_to_plot, dot.scale = input$dot_size) + RotatedAxis()
-  })
-}
-
-# Run the application
-shinyApp(ui = ui, server = server)
-
-
-```
-```{r}
-ui <- fluidPage(
-  titlePanel("Seurat Gene Comparison Viewer"),
-  sidebarLayout(
-    sidebarPanel(
-      selectInput("gene", "Select Another Gene:", choices = rownames(combined_seurat_trunc_subset), selected = "GeneA"),
-      sliderInput("dot_size", "Dot Size:", min = 1, max = 10, value = 5, step = 0.5)
-    ),
-    mainPanel(
-      plotOutput("dotplot", height = "600px")
-    )
-  )
-)
-server <- function(input, output) {
-  output$dotplot <- renderPlot({
-    req(input$gene)
-
-    # Genes to plot
-    genes_to_plot <- c("Ntrk2trunc", input$gene)
-
-    # Generate DotPlot
-    plot <- DotPlot(combined_seurat_trunc_subset, features = genes_to_plot, dot.scale = input$dot_size) +
-      RotatedAxis()
-
-    # Add annotation for Ntrk2trunc
-    plot + annotate(
-      "text", x = 1, y = max(input$dot_size) + 0.2,
-      label = "Ntrk2trunc", color = "red", size = 5, fontface = "bold"
-      
-    )
-  })
-}
-scale_color_manual(values = c("Ntrk2trunc" = "red", "other_gene" = "blue"))
-shinyApp(ui = ui, server = server)
-
-
-```
-```{r}
-# Load required libraries
 library(shiny)
 library(Seurat)
 library(ggplot2)
-library(pheatmap)
+library(patchwork)
+library(shinycssloaders)  # For loading spinners
 
+# Define the directory containing Seurat objects
+seurat_dir <- "/data/gpfs/projects/punim2183/data_processed/"
+
+# Define UI
 ui <- fluidPage(
-  titlePanel("Gene Co-expression and Probability Viewer"),
-  
+  titlePanel("Seurat Object Explorer"),
   sidebarLayout(
     sidebarPanel(
-      selectInput(
-        "celltype", "Select Cell Type:",
-        choices = if (!is.null(combined_seurat_trunc_subset)) unique(Idents(combined_seurat_trunc_subset)) else c(),
-        selected = "Neurons"
-      ),
-      selectInput(
-        "gene", "Select Gene to Compare:",
-        choices = if (!is.null(combined_seurat_trunc_subset)) rownames(GetAssayData(combined_seurat_trunc_subset, slot = "data")) else c(),
-        selected = "GeneA"
-      ),
-      numericInput(
-        "threshold", "Expression Threshold for Probability:",
-        value = 0.5, min = 0, max = 10
-      ),
-      selectInput(
-        "visualization", "Select Visualization Type:",
-        choices = c("Heatmap", "Scatterplot", "DotPlot", "Probability"),
-        selected = "Probability"
-      ),
-      numericInput(
-        "top_genes", "Number of Top Genes (Heatmap):",
-        value = 20, min = 5, max = 50
-      ),
-      selectInput(
-        "gene_filter", "Filter Genes By:",
-        choices = c("All Genes", "Highly Expressed", "Highly Variable"),
-        selected = "All Genes"
-      )
+      textInput("object1", "Enter Seurat Object 1 Name", value = ""),
+      textInput("object2", "Enter Seurat Object 2 Name", value = ""),
+      textInput("gene1", "Enter Gene for Object 1", value = ""),
+      textInput("gene2", "Enter Gene for Object 2", value = ""),
+      selectInput("cell_type", "Choose Cell Type(s)", 
+                  choices = c("Astrocytes", "Oligo", "Neurons"), 
+                  multiple = TRUE),  # Allow multiple selections
+      radioButtons("plot_type", "Choose Plot Type",
+                   choices = c("Feature Plot", "Violin Plot", "Both"),
+                   selected = "Both"),
+      actionButton("plot", "Generate Plots")
     ),
     mainPanel(
-      plotOutput("plot", height = "600px"),
-      verbatimTextOutput("probability_output")  # Text for probability
+      conditionalPanel(
+        condition = "input.plot_type == 'Feature Plot' || input.plot_type == 'Both'",
+        h4("Feature Plot"),
+        fluidRow(
+          column(6, withSpinner(plotOutput("feature_plot1"))),  # Add loading spinner
+          column(6, withSpinner(plotOutput("feature_plot2")))   # Add loading spinner
+        )
+      ),
+      conditionalPanel(
+        condition = "input.plot_type == 'Violin Plot' || input.plot_type == 'Both'",
+        h4("Violin Plot"),
+        fluidRow(
+          column(6, withSpinner(plotOutput("violin_plot1"))),   # Add loading spinner
+          column(6, withSpinner(plotOutput("violin_plot2"))))   # Add loading spinner
+        )
+      )
     )
   )
 )
 
-
-# Define Server
-server <- function(input, output) {
-  output$plot <- renderPlot({
-    # Subset Seurat object for selected cell type
-    subset_obj <- subset(combined_seurat_trunc_subset, idents = input$celltype)
-    
-    # Get normalized expression matrix
-    expr_matrix <- as.matrix(GetAssayData(subset_obj, slot = "data"))
-    
-    # Ensure the gene of interest is present
-    gene_of_interest <- "Ntrk2trunc"
-    if (!(gene_of_interest %in% rownames(expr_matrix))) {
-      stop(paste("Gene", gene_of_interest, "not found in the dataset."))
+# Define server logic
+server <- function(input, output, session) {
+  # Reactive values to store Seurat objects and their names
+  seurat1 <- reactiveVal(NULL)
+  seurat2 <- reactiveVal(NULL)
+  object1_name <- reactiveVal("Object 1")
+  object2_name <- reactiveVal("Object 2")
+  
+  # Load Seurat objects when names are provided
+  observeEvent(input$object1, {
+    req(input$object1)
+    object_path <- file.path(seurat_dir, paste0(input$object1, ".RDS"))
+    if (file.exists(object_path)) {
+      showNotification("Loading Seurat Object 1...", type = "message")  # Progress message
+      seurat1(readRDS(object_path))
+      object1_name(input$object1)  # Set object name to the entered name
+      showNotification("Seurat Object 1 loaded successfully!", type = "message")  # Progress message
+    } else {
+      showNotification("Seurat Object 1 not found!", type = "error")
     }
-    
-    # Calculate co-expression with Ntrk2trunc
-    gene_vector <- expr_matrix[gene_of_interest, ]
-    coexpression <- cor(t(expr_matrix), gene_vector, method = "pearson")
-    
-    # Convert to a data frame
-    coexpression_df <- data.frame(
-      Gene = rownames(expr_matrix),
-      Correlation = coexpression
-    )
-    coexpression_df <- coexpression_df[order(-coexpression_df$Correlation), ]
-    if (input$gene_filter == "Highly Expressed") {
-  # Filter by mean expression
-  gene_means <- rowMeans(expr_matrix)
-  highly_expressed_genes <- names(gene_means[gene_means > 0.5])
-  expr_matrix <- expr_matrix[highly_expressed_genes, ]
-}   else if (input$gene_filter == "Highly Variable") {
-  # Use highly variable genes
-  subset_obj <- FindVariableFeatures(subset_obj, selection.method = "vst", nfeatures = 2000)
-  variable_genes <- VariableFeatures(subset_obj)
-  expr_matrix <- expr_matrix[variable_genes, ]
-}
-
-    # Generate the plot based on user input
-    if (input$visualization == "Heatmap") {
-      # Top co-expressed genes for heatmap
-      top_genes <- head(coexpression_df$Gene, input$top_genes)
-      subset_matrix <- expr_matrix[top_genes, ]
-      coexpression_matrix <- cor(t(subset_matrix))
-      
-      # Plot heatmap
-      # Remove self-correlations by setting the diagonal to NA
-diag(coexpression_matrix) <- NA
-
-# Plot the heatmap
-pheatmap(
-  coexpression_matrix,
-  cluster_rows = TRUE,
-  cluster_cols = TRUE,
-  main = "Top Co-expressed Genes with Ntrk2trunc",
-  color = colorRampPalette(c("blue", "white", "red"))(50),
-  na_col = "grey",  # Color for NA values
-  show_rownames = TRUE,
-  show_colnames = TRUE
-)
-
-      
-    } else if (input$visualization == "Scatterplot") {
-      # Fetch data for scatterplot
-      scatter_data <- FetchData(subset_obj, vars = c(gene_of_interest, input$gene))
-      
-      # Plot scatterplot
-      ggplot(scatter_data, aes(x = get(gene_of_interest), y = get(input$gene))) +
-        geom_point(alpha = 0.5) +
-        geom_smooth(method = "lm", color = "blue") +
-        labs(
-          title = paste("Co-expression of", gene_of_interest, "and", input$gene),
-          x = paste(gene_of_interest, "Expression"),
-          y = paste(input$gene, "Expression")
-        ) +
-        theme_minimal()
-      
-    } 
   })
   
-  # Add probability calculation for the gene of interest
-  output$probability_output <- renderText({
-    if (input$visualization == "Probability") {
-      subset_obj <- subset(combined_seurat_trunc_subset, idents = input$celltype)
-      expr_matrix <- as.matrix(GetAssayData(subset_obj, slot = "data"))
-      if (!(input$gene %in% rownames(expr_matrix))) {
-        return(paste("Gene", input$gene, "not found in the dataset."))
+  observeEvent(input$object2, {
+    req(input$object2)
+    object_path <- file.path(seurat_dir, paste0(input$object2, ".RDS"))
+    if (file.exists(object_path)) {
+      showNotification("Loading Seurat Object 2...", type = "message")  # Progress message
+      seurat2(readRDS(object_path))
+      object2_name(input$object2)  # Set object name to the entered name
+      showNotification("Seurat Object 2 loaded successfully!", type = "message")  # Progress message
+    } else {
+      showNotification("Seurat Object 2 not found!", type = "error")
+    }
+  })
+  
+  # Generate plots when the button is clicked
+  observeEvent(input$plot, {
+    req(seurat1(), input$gene1, input$cell_type)  # Ensure cell types are selected
+    
+    # Filter data based on selected cell types
+    filtered_seurat1 <- subset(seurat1(), subset = cell_type %in% input$cell_type)  # Replace "cell_type" with your metadata column
+    filtered_seurat2 <- if (!is.null(seurat2())) subset(seurat2(), subset = cell_type %in% input$cell_type) else NULL
+    
+    # Show progress bar for plot generation
+    withProgress(message = "Generating plots...", value = 0, {
+      # Feature Plots
+      if (input$plot_type == "Feature Plot" || input$plot_type == "Both") {
+        incProgress(0.3, detail = "Generating Feature Plots...")  # Update progress
+        output$feature_plot1 <- renderPlot({
+          FeaturePlot(filtered_seurat1, features = input$gene1) + ggtitle(paste(object1_name(), "-", input$gene1))
+        })
+        
+        output$feature_plot2 <- renderPlot({
+          if (!is.null(filtered_seurat2)) {
+            FeaturePlot(filtered_seurat2, features = input$gene2) + ggtitle(paste(object2_name(), "-", input$gene2))
+          }
+        })
       }
       
-      # Calculate the probability (percentage of cells expressing above the threshold)
-      gene_vector <- expr_matrix[input$gene, ]
-      prob_cells <- mean(gene_vector > input$threshold) * 100  # Percentage
+      # Violin Plots
+      if (input$plot_type == "Violin Plot" || input$plot_type == "Both") {
+        incProgress(0.6, detail = "Generating Violin Plots...")  # Update progress
+        output$violin_plot1 <- renderPlot({
+          VlnPlot(filtered_seurat1, features = input$gene1, group.by = "Class") + ggtitle(paste(object1_name(), "-", input$gene1))
+        })
+        
+        output$violin_plot2 <- renderPlot({
+          if (!is.null(filtered_seurat2)) {
+            VlnPlot(filtered_seurat2, features = input$gene2, group.by = "Class") + ggtitle(paste(object2_name(), "-", input$gene2))
+          }
+        })
+      }
       
-      # Output probability
-      paste(
-        "Probability of cells in", input$celltype, 
-        "expressing", input$gene, "above", input$threshold, ":",
-        round(prob_cells, 2), "%"
-      )
-    }
+      incProgress(1, detail = "Done!")  # Complete progress
+    })
   })
 }
 
+# Run the app
 shinyApp(ui = ui, server = server)
-
-
 
 ```
