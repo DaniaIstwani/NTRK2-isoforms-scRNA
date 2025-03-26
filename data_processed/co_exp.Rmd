@@ -1,0 +1,223 @@
+---
+title: "co_exp"
+output: html_document
+date: "2025-03-18"
+---
+# Gene Co-expression Analysis
+
+This workflow analyzes gene co-expression in a Seurat object.
+
+## Input
+-  A Seurat object containing single-cell RNA-seq data.
+
+## Output
+- `correlation_df.rds`: Correlation results for the target gene.
+
+## packages needed
+   install.packages("Seurat")
+   install.packages("CSCORE")
+   install.packages("ggplot2")
+
+
+1. Select the top 5000 genes based on mean expression.
+
+2. Run CSCORE to calculate co-expression.
+
+3. Filter and visualize genes correlated with a target gene (Ntrk2trunc).
+
+```{r}
+set.seed(123)
+```
+
+```{r}
+# get the normalised data from "data" layer:
+
+normalized_data <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
+normalized_data <- as.matrix(normalized_data)
+
+# calculate mean expression accross all cells:
+mean_exp <- rowMeans(normalized_data)
+
+# select top 5000 genes based on mean expression
+genes_selected <- names(sort(mean_exp, decreasing = TRUE))[1:5000]
+
+# subset the Normalized Data to the top 5000
+normalized_data_selected <- normalized_data[genes_selected, ]
+
+#subset seurat accrodingly
+seurat_subset <- CreateSeuratObject(counts = normalized_data_selected, assay = "RNA")
+seurat_subset$nCount_RNA <- colSums(normalized_data_selected)
+
+
+#run cs_core: to generate correlation matrix (pairwise matrix for gene-gene correlation)
+CSCORE_result <- CSCORE(seurat_subset, genes = genes_selected)
+
+#process CS_core results:
+
+
+CSCORE_coexp <- CSCORE_result$est
+CSCORE_p <- CSCORE_result$p_value
+
+# Adjust p-values using Benjamini-Hochberg (BH) method
+p_matrix_BH <- matrix(0, length(genes_selected), length(genes_selected))
+p_matrix_BH[upper.tri(p_matrix_BH)] <- p.adjust(CSCORE_p[upper.tri(CSCORE_p)], method = "BH")
+p_matrix_BH <- p_matrix_BH + t(p_matrix_BH)
+
+# Filter co-expression matrix based on adjusted p-values
+CSCORE_coexp[p_matrix_BH > 0.05] <- 0
+```
+
+```{r}
+#Correlate with Target Gene
+
+target_gene <- "Ntrk2trunc"
+target_gene_expression <- normalized_data[target_gene, ]
+
+correlations <- apply(normalized_data, 1, function(gene_expression) {
+  cor(target_gene_expression, gene_expression, method = "pearson")
+})
+
+correlation_df <- data.frame(
+  gene = names(correlations),
+  correlation = correlations,
+  row.names = NULL
+)
+
+correlation_df <- correlation_df[order(-abs(correlation_df$correlation)), ]
+significant_correlations <- correlation_df[abs(correlation_df$correlation) > 0.5, ]
+
+```
+
+for comparison: Better using CS-Core matrix: 
+
+```{r}
+target_gene_coexp_cs <- CSCORE_coexp[target_gene, ]
+significant_coexp_genes_cs <- target_gene_coexp_cs[abs(target_gene_coexp_cs) > 0.5]
+
+```
+
+```{r}
+# Visualize Top Correlated Genes
+
+top_genes <- head(significant_correlations, 20)
+ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+```
+
+```{r}
+#save results:
+write.csv(correlation_df, file = paste0(target_gene, "_correlations.csv"), row.names = FALSE)
+write.csv(CSCORE_coexp, file = "CSCORE_coexpression_matrix.csv")
+```
+
+
+```{r}
+
+#select top 20 genes for a better visualisation of the heatmap
+top_20_genes <- coexp_df$gene[1:20]
+
+top_20_coexp <- CSCORE_coexp[top_20_genes, ]
+
+
+# Set color scale limits
+# Normalize the data (e.g., scale rows or columns)
+# Subset the matrix to include only the top 10 genes for rows and columns
+top_20_coexp_subset <- top_20_coexp[, top_20_genes]
+
+# Create the heatmap
+pheatmap(top_20_coexp_subset, 
+         color = my_colors,
+         cluster_rows = TRUE, 
+         cluster_cols = TRUE,
+         fontsize_row = 10, 
+         fontsize_col = 8,
+         main = paste("Top 10 Genes Co-expressed with", target_gene),
+         show_rownames = TRUE, 
+         show_colnames = TRUE,
+         cellwidth = 15, 
+         cellheight = 15)
+
+
+```
+
+
+```{r}
+run_gene_coexpression_analysis <- function(seurat_object, target_gene, n_top_genes = 5000, correlation_threshold = 0.3, pval_cutoff = 0.05) {
+  # Step 1: Extract normalized data
+  normalized_data <- extract_normalized_data(seurat_object)
+
+  # Step 2: Select top genes
+  genes_selected <- select_top_genes(normalized_data, n_top_genes)
+
+  # Step 3: Subset the normalized data
+  normalized_data_selected <- normalized_data[genes_selected, ]
+
+  # Step 4: Create a minimal Seurat object
+  seurat_subset <- CreateSeuratObject(counts = normalized_data_selected, assay = "RNA")
+  seurat_subset$nCount_RNA <- colSums(normalized_data_selected)
+
+  # Step 5: Run CSCORE
+  CSCORE_result <- run_cscore(seurat_subset, genes_selected)
+
+  # Step 6: Process CSCORE results
+  CSCORE_coexp <- process_cscore_results(CSCORE_result, pval_cutoff)
+
+  # Step 7: Correlate with target gene
+  significant_correlations <- correlate_with_target_gene(CSCORE_coexp, target_gene, correlation_threshold)
+
+  # Step 8: Visualize top correlated genes
+  visualize_top_genes(significant_correlations, target_gene)
+
+  # Step 9: Save results
+  saveRDS(normalized_data, file = paste0(target_gene, "_normalized_data.rds"))
+  saveRDS(CSCORE_result, file = paste0(target_gene, "_CSCORE_result.rds"))
+  saveRDS(significant_correlations, file = paste0(target_gene, "_correlation_df.rds"))
+
+  # Return results
+  return(list(
+    normalized_data = normalized_data,
+    CSCORE_coexp = CSCORE_coexp,
+    significant_correlations = significant_correlations
+  ))
+}
+
+```
+
+
+proceed with GO enrichment analysis:
+
+```{r}
+
+plot_GO_enrichment <- function(gene_name_vector, gene_id_type = 'ENSEMBL', ontology = 'BP', pval_cutoff = 0.2, OrgDb = 'org.Mm.eg.db'){
+  # Taking a vector of gene names, plot GO enrichment dotplot. Default ontology is biological process. 
+  
+  if(!(gene_id_type %in% c('ENSEMBL','ENTREZID'))){stop("The gene id type you entered doesn't exist. You can choose from 'ENTREZID' and 'ENSEMBL'.")}
+  if(!(ontology %in% c('BP','CC','MF'))){stop("The ontology you entered doesn't exist. You can choose from 'BP', 'CC' and 'MF'.")}
+  
+  enrich_obj <- enrichGO(gene = gene_name_vector,
+                         OrgDb = 'org.Mm.eg.db', 
+                         keyType = gene_id_type, 
+                         ont = ontology, 
+                         pAdjustMethod = "BH",
+                         pvalueCutoff = pval_cutoff)
+  
+  enrichplot::dotplot(enrich_obj, 
+                      label_format = 100)
+  }
+
+brain_gene_list_FL <- c("Gm44562","Atp1a3","Slc12a5","Ntrk2") # top 3 from correlation analysis
+brain_gene_list_trunc <- c("Ntrk2", "Slc6a11", "Sdc4", "Slc1a2", "Atp1a2")
+# Convert gene symbols to ENTREZID
+converted_genes <- bitr(brain_gene_list_trunc, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
+brain_gene_list_trunc <- converted_genes$ENTREZID
+
+# Run GO enrichment with converted gene IDs
+plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db')
+
+
+```
