@@ -7,8 +7,6 @@ date: '2024-07-15'
 ## Load libraries
 
 ```{r}
-library(SeuratObject)
-library(SeuratDisk)
 library(Seurat)
 library(cowplot)
 library(dplyr)
