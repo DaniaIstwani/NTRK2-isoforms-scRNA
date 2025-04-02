@@ -34,7 +34,11 @@ read_rds_to_seurat <- function(directory) {
       stop(paste("File", file, "does not contain a valid count matrix."))
     }
     
-    seurat_obj <- CreateSeuratObject(counts = count_matrix$cm)
+    seurat_obj <- CreateSeuratObject(
+      counts = count_matrix$cm,
+      min.cells = 3,
+      min.features = 200
+      )
     seurat_list[[sample_name]] <- seurat_obj
   }
   
@@ -74,8 +78,9 @@ rename_cells_in_seurat_objects <- function(seurat_objects_list) {
 normalize_and_merge <- function(seurat_objects_list) {
   #function that normalizes each seurat object, and merge the list into one Seurat
   #input list of seurats, output normalised and combined seurat
-  # Normalize each seurat
-  seurat_objects_list <- lapply(seurat_objects_list, NormalizeData)
+  # Normalize each seurat using SCTransform (for built-in variance stabilization)
+  #Reference: Hafemeister & Satija, 2019 (Genome Biology) (why SCT not lognormalise)
+  seurat_objects_list <- lapply(seurat_objects_list, SCTransform)
   
   # Merge datasets
   combined_seurat <- merge(
@@ -90,7 +95,7 @@ normalize_and_merge <- function(seurat_objects_list) {
 
 update_orig_ident <- function(seurat_object) {
   #function that updates the orig.ident metadata column based on the sample names extracted from the cell names.
-  #input: merged seurat object, output: updated metadata with corresponant cell names.
+  #input: merged seurat object, output: updated metadata with correspondent cell names.
   # Extract sample names from cell names
   sample_names <- sub("^(10X[0-9]+_[0-9]+)_.*", "\\1", colnames(seurat_object))
   
@@ -133,36 +138,25 @@ run_harmony <- function(seurat_object) {
   # Function to integrate the Seurat object using Harmony and recompute UMAP
   # Input: Merged Seurat object
   # Output: Integrated Seurat object with UMAP computed and plotted
+  #Reference: Korsunsky et al., 2019 (Nature Methods) (why Harmony)
   
   # Run Harmony to correct for batch effects
   seurat_object <- RunHarmony(
     object = seurat_object,
-    group.by.vars = "orig.ident"  # Replace "orig.ident" with the batch variable if different
+    group.by.vars = "orig.ident",  # Replace "orig.ident" with the batch variable if different
+    reduction = "pca",
+    dims.use = 1:npcs,
+    project.dim = FALSE  # Saves memory
   )
-  
-  # Recompute UMAP on the Harmony-corrected embedding
-  seurat_object <- RunUMAP(
-    object = seurat_object,
-    reduction = "harmony",  # Use the Harmony reduction
-    dims = 1:30             # Use the same number of dimensions as used in Harmony
-  )
-  
-  # Plot the UMAP
-  harmony_umap_plot <- DimPlot(
-    object = seurat_object,
-    reduction = "umap",
-    group.by = "orig.ident"  # Color by batch (or any other metadata column)
-  )
-  
-  print(harmony_umap_plot)  # Display the UMAP plot
-  
+  # Use harmony reduction for UMAP
+  seurat_object <- RunUMAP(seurat_object, reduction = "harmony", dims = 1:npcs)
   return(seurat_object)
 }
 
 
 run_CSCORE_on_Seurat_v5 <- function(seurat_object, 
                                     n_genes = 5000, 
-                                    assay = "RNA", 
+                                    assay = "SCT", 
                                     layer = "data", 
                                     cscore_genes = NULL) {
   ##Input:
@@ -177,49 +171,59 @@ run_CSCORE_on_Seurat_v5 <- function(seurat_object,
   #adjusted_p_values: The BH-adjusted p-values.
   #selected_genes: The genes used for the analysis.
   
-  # Load required libraries
-  if (!require(Seurat)) {
-    install.packages("Seurat")
-    library(Seurat)
+  
+  # Validate assay choice
+  if (!assay %in% c("SCT", "RNA")) {
+    stop("assay must be either 'SCT' or 'RNA'")
+  }
+  
+  # Check if SCT assay exists when requested
+  if (assay == "SCT" && !"SCT" %in% names(seurat_object@assays)) {
+    stop("SCT assay not found. Run SCTransform() first.")
   }
   
   # Step 1: Extract normalized data
   normalized_data <- LayerData(seurat_object, assay = assay, layer = layer)
-  normalized_data <- as.matrix(normalized_data)  # Convert to dense matrix
+  normalized_data <- as.matrix(normalized_data)
   
   # Step 2: Calculate mean expression
   mean_exp <- rowMeans(normalized_data)
   
   # Step 3: Select top genes
   if (is.null(cscore_genes)) {
-    genes_selected <- names(sort(mean_exp, decreasing = TRUE))[1:n_genes]
+    # Filter to variable features if using SCT
+    if (assay == "SCT") {
+      var_features <- VariableFeatures(seurat_object, assay = "SCT")
+      genes_selected <- head(var_features[order(-mean_exp[var_features])], n_genes)
+    } else {
+      genes_selected <- names(sort(mean_exp, decreasing = TRUE))[1:n_genes]
+    }
   } else {
-    genes_selected <- cscore_genes  # Use provided genes if available
+    genes_selected <- cscore_genes
   }
   
   # Step 4: Subset the normalized data
   normalized_data_selected <- normalized_data[genes_selected, ]
   
   # Step 5: Create a minimal Seurat object
-  seurat_subset <- CreateSeuratObject(counts = normalized_data_selected, assay = assay)
-  seurat_subset$nCount_RNA <- colSums(normalized_data_selected)
+  seurat_subset <- CreateSeuratObject(
+    counts = normalized_data_selected, 
+    assay = "RNA"  # CSCORE expects "RNA" assay
+  )
   
   # Step 6: Run CSCORE
   CSCORE_result <- CSCORE(seurat_subset, genes = genes_selected)
   
-  # Step 7: Process CSCORE results
+  # Step 7: Process results (unchanged)
   CSCORE_coexp <- CSCORE_result$est
   CSCORE_p <- CSCORE_result$p_value
   
-  # Adjust p-values using Benjamini-Hochberg (BH) method
   p_matrix_BH <- matrix(0, length(genes_selected), length(genes_selected))
   p_matrix_BH[upper.tri(p_matrix_BH)] <- p.adjust(CSCORE_p[upper.tri(CSCORE_p)], method = "BH")
   p_matrix_BH <- p_matrix_BH + t(p_matrix_BH)
   
-  # Filter co-expression matrix based on adjusted p-values
   CSCORE_coexp[p_matrix_BH > 0.05] <- 0
   
-  # Return results
   return(list(
     coexpression_matrix = CSCORE_coexp,
     p_values = CSCORE_p,
@@ -229,92 +233,6 @@ run_CSCORE_on_Seurat_v5 <- function(seurat_object,
 }
 
 
-
-
-# Function to extract and aggregate gene expression data
-extract_gene_expression <- function(gene_of_interest, seurat_obj_list, labels) {
-  expression_data <- data.frame()  # Initialize empty dataframe
-  
-  # Loop through each Seurat object and fetch the gene expression
-  for (i in seq_along(seurat_obj_list)) {
-    seurat_obj <- seurat_obj_list[[i]]
-    if (gene_of_interest %in% rownames(seurat_obj@assays$RNA)) {
-      gene_data <- FetchData(seurat_obj, vars = gene_of_interest)
-      gene_expression <- sum(gene_data[[gene_of_interest]])  # get raw expression values for each cell
-    } else {
-      # If the gene is not found, assign 0 for the dataset
-      gene_expression <- 0
-    }
-    
-    # Create a dataframe with expression values and corresponding dataset label
-    temp_df <- data.frame(Expression = gene_expression, Object = labels[i])
-    
-    # Combine the dataframes
-    expression_data <- rbind(expression_data, temp_df)
-  }
-  
-  return(expression_data)  # Return the aggregated expression data
-}
-
-
-# Function to extract and sum gene expression for multiple genes
-extract_gene_expression_multi_obj <- function(genes_of_interest, seurat_obj_list, labels) {
-  expression_data <- data.frame()  
-  
-  for (i in seq_along(seurat_obj_list)) {
-    seurat_obj <- seurat_obj_list[[i]]  
-    total_expression <- 0  
-    
-    # Loop through each gene of interest and sum their expression
-    for (gene in genes_of_interest) {
-      if (gene %in% rownames(seurat_obj@assays$RNA)) {
-        gene_data <- FetchData(seurat_obj, vars = gene)
-        total_expression <- total_expression + sum(gene_data[[gene]])  # Add to total expression
-      }
-    }
-    
-    # Create a dataframe with total expression values and corresponding object label
-      temp_df <- data.frame(Expression = total_expression, Object = labels[i], Gene = gene)
-    
-    # Combine the dataframes
-      expression_data <- rbind(expression_data, temp_df)
-  }
-  
-  return(expression_data)  
-}
-  
-
-extract_gene_expression_multi_genes <- function(genes_of_interest, seurat_obj_list, labels) {
-  # Initialize an empty list to store temporary data frames
-  expression_list <- list()
-  
-  for (i in seq_along(seurat_obj_list)) {
-    seurat_obj <- seurat_obj_list[[i]]
-    
-    for (gene in genes_of_interest) {
-      # Reset total_expression for each gene
-      total_expression <- 0 
-      
-      if (gene %in% rownames(seurat_obj@assays$RNA)) {
-        total_expression <- sum(FetchData(seurat_obj, vars = gene), na.rm = TRUE)
-        
-        # Add a data frame for each gene's expression to the list
-        expression_list[[length(expression_list) + 1]] <- data.frame(
-          Expression = total_expression,
-          Object = labels[i],
-          Gene = gene  # Include gene name here
-        )
-      } else {
-        message(paste("Warning:", gene, "not found in Seurat object", labels[i]))
-      }
-    }
-  }
-  
-  # Combine all data frames into one
-  expression_data <- do.call(rbind, expression_list)
-  
-  return(expression_data)
-}
 
 
 # Function to plot aggregated gene expression data
@@ -341,68 +259,6 @@ plot_gene_expression <- function(expression_data, gene_of_interest, sample_name,
   return(p)  
 }
 
-# Function to plot aggregated gene expression data for multiple genes
-# plot_gene_expression_multi <- function(expression_data, sample_name) {
-#   if (!"Gene" %in% colnames(expression_data)) {
-#     stop("Error: 'Gene' column not found in expression_data.")
-#   }
-#   
-#   # Plot with ggplot
-#   p <- ggplot(expression_data, aes(x = Object, y = Expression, fill = Gene)) +
-#     geom_bar(stat = "identity", position = position_dodge(), width = 0.6) + 
-#     geom_text(aes(label = round(Expression, 2)), 
-#               position = position_dodge(0.6), 
-#               vjust = -0.5, size = 4) +
-#     theme_minimal() +
-#     labs(title = paste("Total Expression Across", sample_name, "Object(s)"), 
-#          y = "Total Expression Level", x = "Object") +
-#     scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0, 0.1))) +
-#     theme(axis.text.x = element_text(angle = 35, hjust = 1),
-#           axis.text = element_text(size = 12),
-#           axis.title = element_text(size = 14),
-#           plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-#           plot.margin = margin(30, 10, 10, 10)) +
-#     scale_fill_brewer(palette = "Set2")  # color palette for bars
-#   
-#   plot_file_name <- paste0(sample_name, "_multi_gene_expression_barplot.png")
-#   ggsave(plot_file_name, plot = p)
-#   
-#   return(p)  
-# }
-
-
-# Function to rename clusters, subset, and generate violin plots
-process_seurat_and_plot <- function(seurat_obj, new_cluster_ids, genes_to_plot, plot_name_prefix, sample_name) {
-  
-  # 1: Rename clusters based on new cluster IDs
-  names(new_cluster_ids) <- levels(seurat_obj)
-  seurat_obj <- RenameIdents(seurat_obj, new_cluster_ids)
-  
-  # 2: Subset Seurat object for the specified cell types
-  subset_seurat <- subset(seurat_obj, idents = c("Astrocytes", "Neurons", "Oligo"))
-  
-  # 3: Generate the violin plot for the specified genes
-  p <- VlnPlot(subset_seurat, features = genes_to_plot) +
-    ggtitle(paste(genes_to_plot, "expression level in sample", sample_name, "-", sample_name))+
-    theme(plot.title = element_text(size = 12, hjust = 0.3, face = "bold"),  
-          plot.margin = margin(30, 10, 10, 10),  
-          plot.title.position = "plot")
-  
-  # 4: Save the plot with a custom name
-  plot_file_name <- paste0(plot_name_prefix, "_VlnPlot.png")
-  ggsave(plot_file_name, plot = p)
-  print(p)
-  
-  # 5: Return the Seurat object and the plot for further use
-  return(list(seurat_obj = seurat_obj, plot = p))
-}
-
-
-# find markers for a given Seurat object
-find_markers_for_object <- function(seurat_obj) {
-  markers <- FindAllMarkers(seurat_obj, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-  return(markers)
-}
 
 
 

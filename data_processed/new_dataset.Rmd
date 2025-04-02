@@ -14,8 +14,36 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
-```{r cars}
-summary(cars)
+```{r}
+library(DiagrammeR)
+
+grViz("
+digraph SeuratWorkflow {
+    rankdir=TD;
+    node [shape=box, style=filled, fillcolor=lightblue];
+
+    A [label='Load RDS'];
+    B [label='Create Seurat'];
+    C [label='Choose Normalization', shape=diamond, fillcolor=lightgrey];
+    D [label='SCTransform + Merge'];
+    E [label='NormalizeData + Merge'];
+    F [label='Harmony Integration'];
+    G [label='UMAP/Clustering'];
+    H [label='Marker Analysis'];
+
+    A -> B;
+    B -> C;
+    C -> D [label='SCTransform'];
+    C -> E [label='LogNormalize'];
+    D -> F;
+    E -> F;
+    F -> G;
+    G -> H;
+}
+")
+
+```
+    
 ```
 
 ## Including Plots
@@ -30,51 +58,86 @@ Note that the `echo = FALSE` parameter was added to the code chunk to prevent pr
 
 
 ```{r}
-new_cm <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm.rds")
-# 1. Create the Seurat object from your count matrix
-new_seurat <- CreateSeuratObject(counts = new_cm$cm)
+library(Seurat)
+library(dplyr)
+library(ggplot2)
 
-# 2. Process
-new_seurat <- NormalizeData(new_seurat, layer = "counts")
-new_seurat <- FindVariableFeatures(new_seurat)
-new_seurat <- ScaleData(new_seurat, layer = "data")
+# 1. Load data and create Seurat object
+new_cm <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm_neurons.rds")
+new_seurat <- CreateSeuratObject(counts = new_cm$cm, project = "scRNA_project")
 
-# 3. Verify
-print(Layers(new_seurat))  # Should show: "counts" "data" "scale.data"
-
-# Add mitochondrial percentage (adjust gene pattern if needed)
+# 2. Quality Control
+# Calculate mitochondrial percentage (adjust pattern for your organism)
 new_seurat[["percent.mt"]] <- PercentageFeatureSet(new_seurat, pattern = "^MT-")
 
 # Visualize QC metrics
-VlnPlot(new_seurat, features = c("nCount_RNA", "nFeature_RNA", "percent.mt"))
+qc_plots <- VlnPlot(new_seurat, 
+                   features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+                   pt.size = 0.1)
+print(qc_plots)
 
-# Filter cells (adjust thresholds based on your data)
-new_seurat <- subset(new_seurat, 
+# Filter cells (adjust thresholds based on your QC plots)
+new_seurat <- subset(new_seurat,
                     subset = nFeature_RNA > 200 & 
                             nFeature_RNA < 6000 &
                             percent.mt < 20)
 
-# Run PCA (using variable features)
-new_seurat <- RunPCA(new_seurat)
+# 3. Normalization and Feature Selection
+new_seurat <- NormalizeData(new_seurat, normalization.method = "LogNormalize")
+new_seurat <- FindVariableFeatures(new_seurat, selection.method = "vst", nfeatures = 2000)
+
+# Identify top variable features
+top10 <- head(VariableFeatures(new_seurat), 10)
+var_plot <- VariableFeaturePlot(new_seurat)
+var_plot <- LabelPoints(plot = var_plot, points = top10, repel = TRUE)
+print(var_plot)
+
+# 4. Scaling and Dimensionality Reduction
+new_seurat <- ScaleData(new_seurat, features = rownames(new_seurat))
+new_seurat <- RunPCA(new_seurat, features = VariableFeatures(object = new_seurat))
 
 # Visualize PCA results
-DimPlot(new_seurat, reduction = "pca")
-ElbowPlot(new_seurat) # Helps determine significant PCs
+print(DimPlot(new_seurat, reduction = "pca"))
+print(ElbowPlot(new_seurat))
 
-# Find markers for all clusters
+# 5. Clustering
+new_seurat <- FindNeighbors(new_seurat, dims = 1:15) # Adjust based on ElbowPlot
+new_seurat <- FindClusters(new_seurat, resolution = 0.5) # Test 0.4-1.2 range
+new_seurat <- RunUMAP(new_seurat, dims = 1:15)
+
+# Visualize clusters
+cluster_plot <- DimPlot(new_seurat, reduction = "umap", label = TRUE)
+print(cluster_plot)
+
+# 6. Marker Identification
 all_markers <- FindAllMarkers(new_seurat,
                              only.pos = TRUE,
                              min.pct = 0.25,
-                             logfc.threshold = 0.25)
+                             logfc.threshold = 0.25,
+                             test.use = "wilcox") # Default test
 
-# Top markers per cluster
+# Extract top 5 markers per cluster
 top_markers <- all_markers %>%
   group_by(cluster) %>%
   slice_max(n = 5, order_by = avg_log2FC)
 
-# Visualize marker expression
-FeaturePlot(new_seurat, features = top_markers$gene[1:4])
+# Visualize top markers
+print(FeaturePlot(new_seurat, features = top_markers$gene[1:4]))
 
+# 7. Specific Gene Visualization
 FeaturePlot(new_seurat, features = c("Ntrk2FL", "Ntrk2trunc"))
 
+neurons_markers = c("Map2", "Rbfox3", "Tubb3")
+#oligos_markers = c("Mbp", "Olig1", "Olig2")
+astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
+FeaturePlot(new_seurat, neurons_markers)
+FeaturePlot(new_seurat, astrocytes_markers)
+FeaturePlot(new_seurat, features = "Ntrk2FL")
+FeaturePlot(new_seurat, features = "Ntrk2trunc")
+
+
+# 8. Save Results
+# saveRDS(new_seurat, "processed_seurat_final.rds")
+# write.csv(all_markers, "cluster_markers_all.csv")
+# write.csv(top_markers, "cluster_markers_top.csv")
 ```

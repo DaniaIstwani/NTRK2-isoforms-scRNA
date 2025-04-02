@@ -68,7 +68,23 @@ seurat_list_trunc <- rename_cells_in_seurat_objects(seurat_list_trunc)
 
 # Step 3: Normalize and merge Seurat objects
 
-Preprocess the combined Seurat object by normalizing, scaling, clustering, and filtering the data. Then save the final Seurat object into an rds file format.
+Use SCT rather than logNormalisation because:
+-Automatically Handles Sample Merging
+Where the hashed code manually combines layers (data.1, data.2, ...) and normalizes per-sample, which is error-prone.
+
+-SCTransform merges all samples while modeling technical variance (UMI depth, batch effects via orig.ident).
+
+-Better Normalization
+The hashed code uses crude log-normalization (RNA assay).
+
+-SCTransform uses Pearson residuals (variance-stabilized), ideal for co-expression analysis.
+
+-Simpler Workflow
+No need to manually extract/cbind layers or calculate mean expression.
+
+-SCTransform outputs a ready-to-use normalized matrix in the SCT assay. (Reference:  Hafemeister & Satija, 2019 (Genome Biology) )
+
+Preprocess the combined Seurat object by normalizing the data. Then save the final Seurat object into an rds file format.
 
 **Input:** List of seurat objects .
 
@@ -245,7 +261,7 @@ print("Workflow completed successfully! The combined Seurat object has been save
 
 
 
-## Gene expression analysis:
+## Check the presence of transcript isoform(s) expression:
 
 ```{r}
 
@@ -258,42 +274,7 @@ FeaturePlot(combined_seurat_trunc, features = "Ntrk2trunc")
 ```
 
 ## Further analysis: 
-
-```{r}
-one_sample_trunc <- readRDS("/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/trunc/count_matrix.rds_10X05_1.bam.1_trunc.gtf.rds")
-one_sample_trunc <- one_sample_trunc$cm
-one_sample_trunc <- CreateSeuratObject(counts = one_sample_trunc)
-
-dim(one_sample_trunc)
-
-VlnPlot(one_sample_trunc, features = "nFeature_RNA", log = TRUE)
-summary(one_sample_trunc$nFeature_RNA)
-
-
-# 1. Normalize the data
-one_sample_trunc <- NormalizeData(one_sample_trunc)
-
-# 2. Find variable features
-one_sample_trunc <- FindVariableFeatures(one_sample_trunc, selection.method = "vst", nfeatures = 2000)
-
-# 3. Scale the data
-one_sample_trunc <- ScaleData(one_sample_trunc)
-
-
-# 4. Perform PCA
-one_sample_trunc <- RunPCA(one_sample_trunc, npcs = 30)
-
-# 5. Find neighbors and clusters
-one_sample_trunc <- FindNeighbors(one_sample_trunc, dims = 1:10)
-one_sample_trunc <- FindClusters(one_sample_trunc, resolution = 0.5)
-
-# 6. Run UMAP for visualization
-one_sample_trunc <- RunUMAP(one_sample_trunc, dims = 1:10)
-
-# 7. Generate a DimPlot
-DimPlot(one_sample_trunc, reduction = "umap", label = TRUE)
-
-```
+Create clusters and annotate cell-types to clusters using marker genes of cell types of interest
 
 ```{r}
 Both_Isoforms_Seurat <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
@@ -497,22 +478,18 @@ for (gene in gene_names) {
 
 ## CS-Core/ gene co-expression analysis:
 
-Use SCT rather than logNormalisation because:
--Automatically Handles Sample Merging
-Where the hashed code manually combines layers (data.1, data.2, ...) and normalizes per-sample, which is error-prone.
 
--SCTransform merges all samples while modeling technical variance (UMI depth, batch effects via orig.ident).
-
--Better Normalization
-The hashed code uses crude log-normalization (RNA assay).
-
--SCTransform uses Pearson residuals (variance-stabilized), ideal for co-expression analysis.
-
--Simpler Workflow
-No need to manually extract/cbind layers or calculate mean expression.
-
--SCTransform outputs a ready-to-use normalized matrix in the SCT assay.
 ```{r}
+# Example barcode: "10X05_1_GTAATATGCAGAGG-1"
+sample_ids <- sub("^(10X\\d+_\\d+)_.*", "\\1", colnames(Both_Isoforms_Seurat))
+
+# Verify uniqueness
+print(unique(sample_ids)) 
+
+Both_Isoforms_Seurat$orig.ident <- factor(sample_ids, levels = unique(sample_ids))
+
+# Check factor levels (critical for SCTransform)
+levels(Both_Isoforms_Seurat$orig.ident)  # Must show ≥2 levels
 
 combined_seurat_both <- SCTransform(Both_Isoforms_Seurat, 
                                   vars.to.regress = c("nCount_RNA", "orig.ident"))
