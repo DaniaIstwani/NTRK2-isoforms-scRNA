@@ -30,9 +30,14 @@ source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.
 #save.image(file = "dropEst_output.RData")
 #load("dropEst_output.RData")
 
-# knitr::opts_chunk$set(eval = FALSE)
-# rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
+ # knitr::opts_chunk$set(eval = FALSE)
+ # 
+ # knitr::knit("dropEst_output.Rmd", output = "dropEst_output_analysis.md")
+
+ #rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
 ```
+
+The Following steps explain how the Dropest generated count matrices are converted and saved as an rds Seurat objects: 
 
 ## Step 1: Reading count matrices from a directory and createing Seurat objects:
 
@@ -65,7 +70,23 @@ seurat_list_trunc <- rename_cells_in_seurat_objects(seurat_list_trunc)
 
 # Step 3: Normalize and merge Seurat objects
 
-Preprocess the combined Seurat object by normalizing, scaling, clustering, and filtering the data. Then save the final Seurat object into an rds file format.
+Use SCT rather than logNormalisation because:
+-Automatically Handles Sample Merging
+Where the hashed code manually combines layers (data.1, data.2, ...) and normalizes per-sample, which is error-prone.
+
+-SCTransform merges all samples while modeling technical variance (UMI depth, batch effects via orig.ident).
+
+-Better Normalization
+The hashed code uses crude log-normalization (RNA assay).
+
+-SCTransform uses Pearson residuals (variance-stabilized), ideal for co-expression analysis.
+
+-Simpler Workflow
+No need to manually extract/cbind layers or calculate mean expression.
+
+-SCTransform outputs a ready-to-use normalized matrix in the SCT assay. (Reference:  Hafemeister & Satija, 2019 (Genome Biology) )
+
+Preprocess the combined Seurat object by normalizing the data. Then save the final Seurat object into an rds file format.
 
 **Input:** List of seurat objects .
 
@@ -201,6 +222,10 @@ combined_seurat_both <- normalize_and_merge(seurat_list_both)
 
 combined_seurat_both <- update_orig_ident(combined_seurat_both)
 
+combined_seurat_both <- SCTransform(combined_seurat_both, 
+                                  vars.to.regress = c("nCount_RNA"),
+                                  conserve.memory = TRUE)
+
 combined_seurat_both <- process_seurat(combined_seurat_both)
 
 combined_seurat_both <- run_harmony(combined_seurat_both)
@@ -240,7 +265,7 @@ print("Workflow completed successfully! The combined Seurat object has been save
 
 
 
-## Gene expression analysis:
+## Check the presence of transcript isoform(s) expression:
 
 
 ``` r
@@ -252,42 +277,7 @@ FeaturePlot(combined_seurat_trunc, features = "Ntrk2trunc")
 ```
 
 ## Further analysis: 
-
-
-``` r
-one_sample_trunc <- readRDS("/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/trunc/count_matrix.rds_10X05_1.bam.1_trunc.gtf.rds")
-one_sample_trunc <- one_sample_trunc$cm
-one_sample_trunc <- CreateSeuratObject(counts = one_sample_trunc)
-
-dim(one_sample_trunc)
-
-VlnPlot(one_sample_trunc, features = "nFeature_RNA", log = TRUE)
-summary(one_sample_trunc$nFeature_RNA)
-
-
-# 1. Normalize the data
-one_sample_trunc <- NormalizeData(one_sample_trunc)
-
-# 2. Find variable features
-one_sample_trunc <- FindVariableFeatures(one_sample_trunc, selection.method = "vst", nfeatures = 2000)
-
-# 3. Scale the data
-one_sample_trunc <- ScaleData(one_sample_trunc)
-
-
-# 4. Perform PCA
-one_sample_trunc <- RunPCA(one_sample_trunc, npcs = 30)
-
-# 5. Find neighbors and clusters
-one_sample_trunc <- FindNeighbors(one_sample_trunc, dims = 1:10)
-one_sample_trunc <- FindClusters(one_sample_trunc, resolution = 0.5)
-
-# 6. Run UMAP for visualization
-one_sample_trunc <- RunUMAP(one_sample_trunc, dims = 1:10)
-
-# 7. Generate a DimPlot
-DimPlot(one_sample_trunc, reduction = "umap", label = TRUE)
-```
+Create clusters and annotate cell-types to clusters using marker genes of cell types of interest
 
 
 ``` r
@@ -407,6 +397,7 @@ VlnPlot(Both_Isoforms_Seurat, features = genes_of_interest, group.by = "cell_typ
 # markers_cell_type7 <- FindMarkers(Both_Isoforms_Seurat, ident.1 = "cell_type7")
 # print(head(markers_cell_type7))
 ```
+
 Subset seurat to cell types of interest for focused plotting 
 
 ``` r
@@ -489,11 +480,32 @@ for (gene in gene_names) {
 ## CS-Core/ gene co-expression analysis:
 
 
+
 ``` r
-counts_matrix <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
-counts_matrix <- as.matrix(counts_matrix)  # Convert to dense matrix
-mean_exp = rowMeans(counts_matrix/Both_Isoforms_Seurat$nCount_RNA)
-genes_selected <- names(sort(mean_exp, decreasing = TRUE))[1:5000] #of 24482 genes
+# Example barcode: "10X05_1_GTAATATGCAGAGG-1"
+sample_ids <- sub("^(10X\\d+_\\d+)_.*", "\\1", colnames(Both_Isoforms_Seurat))
+
+# Verify uniqueness
+print(unique(sample_ids)) 
+
+Both_Isoforms_Seurat$orig.ident <- factor(sample_ids, levels = unique(sample_ids))
+
+# Check factor levels (critical for SCTransform)
+levels(Both_Isoforms_Seurat$orig.ident)  # Must show ≥2 levels
+
+combined_seurat_both <- SCTransform(Both_Isoforms_Seurat, 
+                                  vars.to.regress = c("nCount_RNA", "orig.ident"))
+# counts_matrix <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
+# counts_matrix <- as.matrix(counts_matrix)  # Convert to dense matrix
+# combined_matrix <- do.call(cbind, lapply(sample_names, function(x) {
+#   LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = x)
+# }))
+
+# Directly access the normalized matrix (Pearson residuals)
+sct_matrix <- GetAssayData(combined_seurat_both, assay = "SCT", layer = "scale.data")
+
+# Select top 5,000 variable genes (better than mean_exp for co-expression)
+genes_selected <- VariableFeatures(combined_seurat_both)[1:5000]
 ```
 
 ``` r
@@ -609,7 +621,7 @@ if (nrow(high_corr_genes) > 10) {
   top_genes <- head(high_corr_genes[order(-abs(high_corr_genes))], 10)
 } else {
   top_genes <- high_corr_genes
-}
+  }
 
 # Convert to a matrix for pheatmap
 top_genes_matrix <- normalized_data[rownames(top_genes), ]
@@ -749,6 +761,8 @@ pheatmap(top_10_coexp_subset,
          cellwidth = 15, 
          cellheight = 15)
 ```
+
+GO enrichment
 
 
 ``` r
