@@ -76,11 +76,14 @@ rename_cells_in_seurat_objects <- function(seurat_objects_list) {
 
 
 normalize_and_merge <- function(seurat_objects_list) {
-  #function that normalizes each seurat object, and merge the list into one Seurat
-  #input list of seurats, output normalised and combined seurat
-  # Normalize each seurat using SCTransform (for built-in variance stabilization)
-  #Reference: Hafemeister & Satija, 2019 (Genome Biology) (why SCT not lognormalise)
-  seurat_objects_list <- lapply(seurat_objects_list, SCTransform)
+  # Function to normalize each Seurat object with LogNormalize and merge them
+  # Input: list of Seurat objects
+  # Output: merged Seurat object with LogNormalized RNA assay
+  
+  # Normalize each Seurat object
+  seurat_objects_list <- lapply(seurat_objects_list, function(x) {
+    NormalizeData(x, normalization.method = "LogNormalize", scale.factor = 10000)
+  })
   
   # Merge datasets
   combined_seurat <- merge(
@@ -91,6 +94,10 @@ normalize_and_merge <- function(seurat_objects_list) {
   
   return(combined_seurat)
 }
+
+
+
+
 
 
 update_orig_ident <- function(seurat_object) {
@@ -134,7 +141,7 @@ process_seurat <- function(seurat_object,
   return(seurat_object)
 }
 
-run_harmony <- function(seurat_object) {
+run_harmony <- function(seurat_object, group.by.vars = "orig.ident", npcs = 30) {
   # Function to integrate the Seurat object using Harmony and recompute UMAP
   # Input: Merged Seurat object
   # Output: Integrated Seurat object with UMAP computed and plotted
@@ -143,22 +150,27 @@ run_harmony <- function(seurat_object) {
   # Run Harmony to correct for batch effects
   seurat_object <- RunHarmony(
     object = seurat_object,
-    group.by.vars = "orig.ident",  # Replace "orig.ident" with the batch variable if different
-    reduction = "pca",
-    dims.use = 1:npcs,
-    project.dim = FALSE  # Saves memory
+    group.by.vars = group.by.vars,  
+    reduction.use = "pca",
+    dims = 1:npcs,
+    assay.use = "RNA",  
+    project.dim = FALSE,
+    verbose = TRUE
   )
+  
   # Use harmony reduction for UMAP
-  seurat_object <- RunUMAP(seurat_object, reduction = "harmony", dims = 1:npcs)
+  seurat_object <- RunUMAP(
+    object = seurat_object,
+    reduction = "harmony",
+    dims = 1:npcs,
+    verbose = TRUE
+  )
+  
   return(seurat_object)
 }
 
 
-run_CSCORE_on_Seurat_v5 <- function(seurat_object, 
-                                    n_genes = 5000, 
-                                    assay = "SCT", 
-                                    layer = "data", 
-                                    cscore_genes = NULL) {
+run_CSCORE_on_Seurat_v5 <- function(
   ##Input:
   #seurat_object: A Seurat v5 object.
   #n_genes: Number of top genes to select based on mean expression (default: 5000).
@@ -170,51 +182,48 @@ run_CSCORE_on_Seurat_v5 <- function(seurat_object,
   #p_values: The raw p-values from CSCORE.
   #adjusted_p_values: The BH-adjusted p-values.
   #selected_genes: The genes used for the analysis.
-  
-  
-  # Validate assay choice
-  if (!assay %in% c("SCT", "RNA")) {
-    stop("assay must be either 'SCT' or 'RNA'")
+    seurat_object, 
+    n_genes = 3000,          
+    assay = "RNA", 
+    layer = "data", 
+    cscore_genes = NULL
+) {
+  # Validate inputs
+  if (!assay %in% names(seurat_object@assays)) {
+    stop("Assay not found in Seurat object")
   }
   
-  # Check if SCT assay exists when requested
-  if (assay == "SCT" && !"SCT" %in% names(seurat_object@assays)) {
-    stop("SCT assay not found. Run SCTransform() first.")
-  }
+  # 1. Extract sparse data (no conversion to dense)
+  sparse_data <- LayerData(seurat_object, assay = assay, layer = layer)
   
-  # Step 1: Extract normalized data
-  normalized_data <- LayerData(seurat_object, assay = assay, layer = layer)
-  normalized_data <- as.matrix(normalized_data)
-  
-  # Step 2: Calculate mean expression
-  mean_exp <- rowMeans(normalized_data)
-  
-  # Step 3: Select top genes
+  # 2. Select genes (sparse-compatible)
   if (is.null(cscore_genes)) {
-    # Filter to variable features if using SCT
-    if (assay == "SCT") {
-      var_features <- VariableFeatures(seurat_object, assay = "SCT")
-      genes_selected <- head(var_features[order(-mean_exp[var_features])], n_genes)
-    } else {
-      genes_selected <- names(sort(mean_exp, decreasing = TRUE))[1:n_genes]
-    }
+    # Calculate mean expression without dense conversion
+    gene_means <- Matrix::rowMeans(sparse_data)
+    genes_selected <- names(sort(gene_means, decreasing = TRUE)[1:n_genes])
   } else {
-    genes_selected <- cscore_genes
+    genes_selected <- intersect(cscore_genes, rownames(sparse_data))
   }
   
-  # Step 4: Subset the normalized data
-  normalized_data_selected <- normalized_data[genes_selected, ]
+  # 3. Subset sparse matrix (memory-efficient)
+  sparse_subset <- sparse_data[genes_selected, ]
   
-  # Step 5: Create a minimal Seurat object
+  # 4. Convert ONLY the subset to dense (minimal memory impact)
+  dense_subset <- as.matrix(sparse_subset)
+  
+  # 5. Create minimal Seurat object
   seurat_subset <- CreateSeuratObject(
-    counts = normalized_data_selected, 
-    assay = "RNA"  # CSCORE expects "RNA" assay
+    counts = dense_subset,
+    assay = "RNA"
   )
   
-  # Step 6: Run CSCORE
-  CSCORE_result <- CSCORE(seurat_subset, genes = genes_selected)
+  # 6. Run CS-CORE
+  CSCORE_result <- CSCORE::CSCORE(
+    object = seurat_subset,
+    genes = genes_selected
+  )
   
-  # Step 7: Process results (unchanged)
+  # 7. Process results (unchanged)
   CSCORE_coexp <- CSCORE_result$est
   CSCORE_p <- CSCORE_result$p_value
   
@@ -230,6 +239,20 @@ run_CSCORE_on_Seurat_v5 <- function(seurat_object,
     adjusted_p_values = p_matrix_BH,
     selected_genes = genes_selected
   ))
+}
+
+get_high_correlation_features <- function(matrix, variable_vector, threshold, method = 'pearson'){
+  # taking a matrix and a vector (numerical), find features (rows) that have absolute correlation score (both positive and negative) greater than your set threshold value with your variable vector. 
+  correlations <- lapply(1:nrow(matrix), function(x) {cor(as.vector(as.numeric(matrix[x,])),as.vector(variable_vector), method=method)})
+  
+  correlations <- as.matrix(unlist(correlations))
+  
+  rownames(correlations) <- rownames(as.matrix(matrix))
+  
+  high_corr_features <- correlations[which(abs(correlations) > threshold), drop = FALSE]
+  
+  return(high_corr_features)
+  
 }
 
 

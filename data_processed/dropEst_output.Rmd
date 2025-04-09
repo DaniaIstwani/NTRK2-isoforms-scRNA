@@ -24,6 +24,8 @@ library(rtracklayer)
 library(clusterProfiler)
 library(org.Mm.eg.db)
 library(enrichplot)
+library(glmGamPoi)
+
 
 source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.R")
 #save.image(file = "dropEst_output.RData")
@@ -206,29 +208,34 @@ print("Workflow completed successfully! The combined Seurat object has been save
 
 ```{r}
 # Define the directory containing RDS files
-rds_directory_both <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both"
+rds_directory_both <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both/cm_both/"
 
-seurat_list_both <- read_rds_to_seurat(rds_directory_both)
+# 1. Load with renaming data
+seurat_list_both <- read_rds_to_seurat(rds_directory_both) |>
+  rename_cells_in_seurat_objects()
 
-seurat_list_both <- rename_cells_in_seurat_objects(seurat_list_both)
-
+seurat_list_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/seurat_list_both.rds")
+# 2. Normalize with SCTransform and merge
 combined_seurat_both <- normalize_and_merge(seurat_list_both)
 
 combined_seurat_both <- update_orig_ident(combined_seurat_both)
 
-combined_seurat_both <- SCTransform(combined_seurat_both, 
-                                  vars.to.regress = c("nCount_RNA"),
-                                  conserve.memory = TRUE)
-
+# 3. Process with Harmony integration
 combined_seurat_both <- process_seurat(combined_seurat_both)
+combined_seurat_both <- run_harmony(combined_seurat_both, group.by.vars = "orig.ident", npcs = 20)
 
-combined_seurat_both <- run_harmony(combined_seurat_both)
+# 4. Save the processed object
+saveRDS(combined_seurat_both, "combined_seurat_both.rds")
 
-save_seurat_object(combined_seurat_both, "combined_seurat_both.rds")
-
+# 5. Run co-expression analysis (using SCT assay)
+coexp_results <- run_CSCORE_on_Seurat_v5(
+  seurat_object = combined_seurat_both,
+  assay = "RNA",
+  layer = "data",
+  n_genes = 3000  
+)
 # Print a success message
 print("Workflow completed successfully! The combined Seurat object has been saved.")
-
 
 FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"))
 
@@ -240,19 +247,21 @@ FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"))
 # Define the directory containing RDS files
 rds_directory_orig <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/orig"
 
-seurat_list_M10 <- read_rds_to_seurat(rds_directory_orig)
+# 1. Load with renaming data
+seurat_list_M10 <- read_rds_to_seurat(rds_directory_orig) |>
+  rename_cells_in_seurat_objects()
 
-seurat_list_M10 <- rename_cells_in_seurat_objects(seurat_list_M10)
+# 2. Normalize with SCTransform and merge
+combined_seurat_M10 <- normalize_and_merge(seurat_list_M10) |>
+  update_orig_ident()
 
-combined_seurat_M10 <- normalize_and_merge(seurat_list_M10)
+# 3. Process with Harmony integration
+combined_seurat_M10 <- process_seurat(combined_seurat_M10) |>
+  run_harmony()
 
-combined_seurat_M10 <- update_orig_ident(combined_seurat_M10)
+# 4. Save the processed object
+saveRDS(combined_seurat_M10, "combined_seurat_M10.rds")
 
-combined_seurat_M10 <- process_seurat(combined_seurat_M10)
-
-combined_seurat_M10 <- run_harmony(combined_seurat_M10)
-
-save_seurat_object(combined_seurat_M10, "combined_seurat_M10.rds")
 
 # Print a success message
 print("Workflow completed successfully! The combined Seurat object has been saved.")
@@ -277,104 +286,82 @@ FeaturePlot(combined_seurat_trunc, features = "Ntrk2trunc")
 Create clusters and annotate cell-types to clusters using marker genes of cell types of interest
 
 ```{r}
-Both_Isoforms_Seurat <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
-# Check available reductions in the Seurat object
-names(Both_Isoforms_Seurat@reductions)
+combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
 
+names(combined_seurat_both@reductions)
+DimPlot(combined_seurat_both, reduction = "umap", label = TRUE)
+combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
 
-Both_Isoforms_Seurat <- run_harmony(Both_Isoforms_Seurat)
-Both_Isoforms_Seurat <- FindNeighbors(Both_Isoforms_Seurat, dims = 1:10)
-Both_Isoforms_Seurat <- FindClusters(Both_Isoforms_Seurat, resolution = 0.5)
-DimPlot(Both_Isoforms_Seurat, reduction = "umap", group.by = "seurat_clusters", label = TRUE)
-DimPlot(Both_Isoforms_Seurat, reduction = "pca")
-DimPlot(Both_Isoforms_Seurat, reduction = "umap")
-DimPlot(Both_Isoforms_Seurat, group.by = "orig.ident")
-table(Both_Isoforms_Seurat$orig.ident)
-DimPlot(Both_Isoforms_Seurat, reduction = "umap", label = TRUE)
-Both_Isoforms_Seurat <- JoinLayers(Both_Isoforms_Seurat, assay = "RNA")
-
-
-#saveRDS(Both_Isoforms_Seurat, "Both_Isoforms_Seurat.rds")
-
-FeaturePlot(Both_Isoforms_Seurat, features = c("Ntrk2FL", "Ntrk2trunc"))
-ElbowPlot(Both_Isoforms_Seurat)
 ```
 
 ```{r, fig.width=12, fig.height=10}
-Both_Isoforms_Seurat <- readRDS("/data/gpfs/projects/punim2183/data_processed/Both_Isoforms_Seurat.rds")
+combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
 
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
 oligos_markers = c("Mbp", "Olig1", "Olig2")
 astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
 
-count_expressing_cells <- function(markers, Both_Isoforms_Seurat) {
-  expression_data <- FetchData(Both_Isoforms_Seurat, vars = markers)
+count_expressing_cells <- function(markers, combined_seurat_both) {
+  expression_data <- FetchData(combined_seurat_both, vars = markers)
   num_cells <- sum(rowSums(expression_data > 0) > 0)
   return(num_cells)
 }
 
-FeaturePlot(Both_Isoforms_Seurat, c(neurons_markers, astrocytes_markers, oligos_markers))
+FeaturePlot(combined_seurat_both, c(neurons_markers, astrocytes_markers, oligos_markers))
 
-# Count cells expressing each set of markers
-neurons_cells_expressing <- count_expressing_cells(neurons_markers, Both_Isoforms_Seurat)
-oligos_cells_expressing <- count_expressing_cells(oligos_markers, Both_Isoforms_Seurat)
-astrocytes_cells_expressing <- count_expressing_cells(astrocytes_markers, Both_Isoforms_Seurat)
 
-print(paste("Number of cells expressing neuron markers:", neurons_cells_expressing))
-print(paste("Number of cells expressing oligodendrocyte markers:", oligos_cells_expressing))
-print(paste("Number of cells expressing astrocyte markers:", astrocytes_cells_expressing))
 ```
 
-Assign Clusters to cell types of interest
+# Assign Clusters to cell types of interest
 
 ```{r}
 
 # Join layers in the RNA assay
-#Both_Isoforms_Seurat <- JoinLayers(Both_Isoforms_Seurat, assay = "RNA")
+#combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
 
 cluster_to_celltype <- list(
-  Neurons = c(4, 5, 20, 16, 7, 8,22),
-  Oligo = c(11, 19, 9, 6, 24, 21),
-  Astrocytes = c(3, 2, 23, 25, 26)
+  Neurons = c(0, 2, 3, 11, 12, 13, 14, 20, 21, 22, 25, 27),
+  Oligo = c(6, 10, 16, 24, 29),
+  Astrocytes = c(1,7, 17, 23, 26, 28, 30)
 )
 # Create a vector to store cell type labels
-cell_type_labels <- rep(NA, ncol(Both_Isoforms_Seurat))
+cell_type_labels <- rep(NA, ncol(combined_seurat_both))
 
 # Assign specific cell types based on cluster IDs
-for (cluster_id in 0:26) {
+for (cluster_id in 0:30) {
   if (cluster_id %in% cluster_to_celltype$Neurons) {
-    cell_type_labels[Both_Isoforms_Seurat$seurat_clusters == cluster_id] <- "Neurons"
+    cell_type_labels[combined_seurat_both$seurat_clusters == cluster_id] <- "Neurons"
   } else if (cluster_id %in% cluster_to_celltype$Oligo) {
-    cell_type_labels[Both_Isoforms_Seurat$seurat_clusters == cluster_id] <- "Oligo"
+    cell_type_labels[combined_seurat_both$seurat_clusters == cluster_id] <- "Oligo"
   } else if (cluster_id %in% cluster_to_celltype$Astrocytes) {
-    cell_type_labels[Both_Isoforms_Seurat$seurat_clusters == cluster_id] <- "Astrocytes"
+    cell_type_labels[combined_seurat_both$seurat_clusters == cluster_id] <- "Astrocytes"
   }
 }
 
 # Assign generic labels to remaining clusters
-remaining_clusters <- setdiff(0:26, unlist(cluster_to_celltype))
+remaining_clusters <- setdiff(0:30, unlist(cluster_to_celltype))
 for (i in seq_along(remaining_clusters)) {
-  cell_type_labels[Both_Isoforms_Seurat$seurat_clusters == remaining_clusters[i]] <- paste0("cell_type", i)
+  cell_type_labels[combined_seurat_both$seurat_clusters == remaining_clusters[i]] <- paste0("cell_type", i)
 }
 
 # Add the cell type labels to the Seurat object
-Both_Isoforms_Seurat$cell_type <- cell_type_labels
+combined_seurat_both$cell_type <- cell_type_labels
 
 # Set the cell type as the active identity
-Idents(Both_Isoforms_Seurat) <- Both_Isoforms_Seurat$cell_type
-table(Both_Isoforms_Seurat$cell_type)
+Idents(combined_seurat_both) <- combined_seurat_both$cell_type
+table(combined_seurat_both$cell_type)
 
-DimPlot(Both_Isoforms_Seurat, reduction = "umap", label = TRUE, group.by = "cell_type")
+DimPlot(combined_seurat_both, reduction = "umap", label = TRUE, group.by = "cell_type")
 
-#saveRDS(Both_Isoforms_Seurat, "/data/gpfs/projects/punim2183/data_processed/combined_seurat_both_with_cell_types.rds")
-#Both_with_cell_types <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both_with_cell_types.rds")
+
 # Extract metadata
-Both_metadata <- Both_Isoforms_Seurat@meta.data
+
+Both_metadata <- combined_seurat_both@meta.data
 head(Both_metadata)
 
 
 # Filter metadata for cell_type1, cell_type9, and cell_type10
-cell_type_info <- Both_metadata[Both_metadata$cell_type %in% c("cell_type1", "cell_type9", "cell_type10"), ]
+cell_type_info <- Both_metadata[Both_metadata$cell_type %in% c("cell_type5"), ]
 
 # Select only the relevant columns
 cell_type_info <- cell_type_info[, c("seurat_clusters", "cell_type")]
@@ -387,18 +374,18 @@ print(cell_type_info)
 
 genes_of_interest = c("Ntrk2FL", "Ntrk2trunc")
 
-VlnPlot(Both_Isoforms_Seurat, features = genes_of_interest, group.by = "cell_type", stack = TRUE, flip = TRUE)
+VlnPlot(combined_seurat_both, features = genes_of_interest, group.by = "cell_type", stack = TRUE, flip = TRUE)
 
-# markers_cell_type7 <- FindMarkers(Both_Isoforms_Seurat, ident.1 = "cell_type7")
+# markers_cell_type7 <- FindMarkers(combined_seurat_both, ident.1 = "cell_type7")
 # print(head(markers_cell_type7))
 
 ```
 
-Subset seurat to cell types of interest for focused plotting 
+## Subset seurat to cell types of interest for focused plotting 
 ```{r, fig.width=8}
 cell_types_of_interest <- c("Neurons", "Oligo", "Astrocytes")
 
-subset_seurat <- subset(Both_Isoforms_Seurat, subset = cell_type %in% cell_types_of_interest)
+subset_seurat_both <- subset(combined_seurat_both, subset = cell_type %in% cell_types_of_interest)
 
 genes_of_interest <- c("Ntrk2FL", "Ntrk2trunc", neurons_markers, astrocytes_markers)  
 
@@ -410,7 +397,7 @@ astrocytes_colors <- c("#2ca02c", "#98df8a", "#66c2a4", "#238b45")  # Shades of 
 
 # Plot for Ntrk2FL + neurons markers
 neurons_plot <- VlnPlot(
-  subset_seurat,
+  subset_seurat_both,
   features = c(neurons_markers, "Ntrk2FL"),
   group.by = "cell_type",
   cols = neurons_colors,  # Use shades of blue
@@ -423,7 +410,7 @@ neurons_plot <- VlnPlot(
 
 # Plot for Ntrk2trunc + astrocytes markers
 astrocytes_plot <- VlnPlot(
-  subset_seurat,
+  subset_seurat_both,
   features = c(astrocytes_markers,"Ntrk2trunc"),
   group.by = "cell_type",
   cols = astrocytes_colors,  # Use shades of green
@@ -440,8 +427,9 @@ combined_plot <- neurons_plot | astrocytes_plot
 
 # Display the combined plot
 combined_plot
-VlnPlot(subset_seurat, features = c("Ntrk2FL", "Ntrk2trunc"), pt.size = 0)
+VlnPlot(subset_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), pt.size = 0)
 
+saveRDS(subset_seurat_both, "subset_seurat_both.rds")
 
 
 
@@ -449,9 +437,9 @@ VlnPlot(subset_seurat, features = c("Ntrk2FL", "Ntrk2trunc"), pt.size = 0)
 
 the following code to check Gfap expression
 ```{r}
-# gfap_expression <- FetchData(Both_Isoforms_Seurat, vars = "Gfap")
+# gfap_expression <- FetchData(combined_seurat_both, vars = "Gfap")
 # 
-# gfap_expression$cell_type <- Both_Isoforms_Seurat$cell_type
+# gfap_expression$cell_type <- combined_seurat_both$cell_type
 # 
 # # Plot Gfap expression across cell types
 # ggplot(gfap_expression, aes(x = cell_type, y = Gfap, fill = cell_type)) +
@@ -460,117 +448,58 @@ the following code to check Gfap expression
 #   labs(title = "Gfap Expression Across Cell Types", x = "Cell Type", y = "Expression Level")
 ```
 
+# CS_core/ gene co-expression
 ```{r}
+subset_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/subset_seurat_both.rds")
 
-gene_names <- c("Ntrk2trunc", "Ntrk2FL")  
-gene_expression <- FetchData(Both_Isoforms_Seurat, vars = gene_names)
+# Merge layers explicitly 
+subset_seurat_both <- JoinLayers(subset_seurat_both, assay = "RNA")
 
-num_cells_expressing <- list()
+coexp_results <- run_CSCORE_on_Seurat_v5(
+  seurat_object = subset_seurat_both,
+  assay = "RNA",
+  layer = "data",
+  n_genes = 3000  
+)
 
-for (gene in gene_names) {
-  num_cells_expressing[[gene]] <- sum(gene_expression[[gene]] > 0)
-  print(paste("Number of cells expressing", gene, ":", num_cells_expressing[[gene]]))
-}
-
+coexp_matrix <- coexp_results$coexpression_matrix
 ```
 
 
 
-## CS-Core/ gene co-expression analysis:
+## gene co-expression analysis:
 
-
-```{r}
-# Example barcode: "10X05_1_GTAATATGCAGAGG-1"
-sample_ids <- sub("^(10X\\d+_\\d+)_.*", "\\1", colnames(Both_Isoforms_Seurat))
-
-# Verify uniqueness
-print(unique(sample_ids)) 
-
-Both_Isoforms_Seurat$orig.ident <- factor(sample_ids, levels = unique(sample_ids))
-
-# Check factor levels (critical for SCTransform)
-levels(Both_Isoforms_Seurat$orig.ident)  # Must show ≥2 levels
-
-combined_seurat_both <- SCTransform(Both_Isoforms_Seurat, 
-                                  vars.to.regress = c("nCount_RNA", "orig.ident"))
-# counts_matrix <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
-# counts_matrix <- as.matrix(counts_matrix)  # Convert to dense matrix
-# combined_matrix <- do.call(cbind, lapply(sample_names, function(x) {
-#   LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = x)
-# }))
-
-# Directly access the normalized matrix (Pearson residuals)
-sct_matrix <- GetAssayData(combined_seurat_both, assay = "SCT", layer = "scale.data")
-
-# Select top 5,000 variable genes (better than mean_exp for co-expression)
-genes_selected <- VariableFeatures(combined_seurat_both)[1:5000]
-
-```
-```{r}
-
-# Step 1: Extract normalized data
-normalized_data <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
-normalized_data <- as.matrix(normalized_data)  # Convert to dense matrix
-
-# Step 2: Calculate mean expression
-mean_exp <- rowMeans(normalized_data)
-
-# Step 3: Select top 5000 genes
-genes_selected <- names(sort(mean_exp, decreasing = TRUE))[1:5000]
-
-# Step 4: Subset the normalized data
-normalized_data_selected <- normalized_data[genes_selected, ]
-
-# Step 5: Create a minimal Seurat object
-
-seurat_subset <- CreateSeuratObject(counts = normalized_data_selected, assay = "RNA")
-seurat_subset$nCount_RNA <- colSums(normalized_data_selected)
-
-# Step 6: Run CSCORE
-CSCORE_result <- CSCORE(seurat_subset, genes = genes_selected)
-
-# Step 7: Process CSCORE results
-CSCORE_coexp <- CSCORE_result$est
-CSCORE_p <- CSCORE_result$p_value
-
-# Adjust p-values using Benjamini-Hochberg (BH) method
-p_matrix_BH <- matrix(0, length(genes_selected), length(genes_selected))
-p_matrix_BH[upper.tri(p_matrix_BH)] <- p.adjust(CSCORE_p[upper.tri(CSCORE_p)], method = "BH")
-p_matrix_BH <- p_matrix_BH + t(p_matrix_BH)
-
-# Filter co-expression matrix based on adjusted p-values
-CSCORE_coexp[p_matrix_BH > 0.05] <- 0
-
-
-```
 
 ```{r}
 
 target_gene <- "Ntrk2trunc"
 
-target_gene_expression <- normalized_data[target_gene, ]
+target_gene_expression_trunc <- coexp_matrix[target_gene, ]
 
 # Calculate correlations
-correlations <- apply(normalized_data, 1, function(gene_expression) {
+correlations <- apply(coexp_matrix, 1, function(gene_expression) {
   cor(target_gene_expression, gene_expression, method = "pearson")
 })
 
 # Convert to a data frame for easier handling
-correlation_df <- data.frame(
+correlation_df_trunc <- data.frame(
   gene = names(correlations),
   correlation = correlations,
   row.names = NULL
 )
 
 # Sort by absolute correlation
-correlation_df <- correlation_df[order(-abs(correlation_df$correlation)), ]
+correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
 
 # Filter for significant correlations
-significant_correlations <- correlation_df[abs(correlation_df$correlation) > 0.3, ] # 0.5 resulted in zero correlarted genes
+significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.5, ] 
+sig_genes_trunc <- significant_correlations_trunc$gene
 
+
+genes_0.1_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.1, ]
 
 # Plot the top 20 correlated genes
-top_genes <- head(significant_correlations, 20)
+top_genes <- head(significant_correlations_trunc, 20)
 ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
@@ -582,54 +511,72 @@ ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
 top_genes$gene
 
 
+# Extract the top 10 genes
+top10_genes_trunc <- head((significant_correlations_trunc$gene), 10)
+
+# Subset the expression matrix
+heatmap_matrix_top10_trunc <- coexp_matrix[top10_genes_trunc, ]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top10_trunc)
+
+# Plot heatmap
+pheatmap(heatmap_matrix_top10_trunc,
+         cluster_rows = TRUE, 
+         cluster_cols = TRUE,
+         fontsize_row = 10, 
+         fontsize_col = 8,
+         main = paste("Top 10 Genes Co-expressed with", target_gene),
+         show_rownames = TRUE, 
+         show_colnames = TRUE,
+         cellwidth = 15, 
+         cellheight = 15)
+
+
+
 ```
 
 ```{r}
 
-get_high_correlation_features <- function(matrix, variable_vector, threshold, method = 'pearson'){
-  # taking a matrix and a vector (numerical), find features (rows) that have absolute correlation score (both positive and negative) greater than your set threshold value with your variable vector. 
-  correlations <- lapply(1:nrow(matrix), function(x) {cor(as.vector(as.numeric(matrix[x,])),as.vector(variable_vector), method=method)})
-  
-  correlations <- as.matrix(unlist(correlations))
-  
-  rownames(correlations) <- rownames(as.matrix(matrix))
-  
-  high_corr_features <- correlations[which(abs(correlations) > threshold), drop = FALSE]
-  
-  return(high_corr_features)
-  
-}
-
-# Extract normalized data (e.g., from the "data" layer)
-normalized_data <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
-normalized_data <- as.matrix(normalized_data)  # Convert to a dense matrix
-
-# Replace "TargetGene" with the name of your target gene
+# Target gene
 target_gene <- "Ntrk2trunc"
 
 # Extract expression of the target gene
-target_gene_expression <- normalized_data[target_gene, ]
+target_gene_expression <- coexp_matrix[target_gene, ]
+
 # Define the correlation threshold
-threshold <- 0.4  # Adjust as needed
+threshold <- 0.5  # Adjust as needed
 
-# Calculate correlations
-high_corr_genes <- get_high_correlation_features(normalized_data, target_gene_expression, threshold)
+# Calculate correlations with the target gene
+correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+  cor(target_gene_expression, gene_expression, method = "pearson")
+})
 
-# View the results
+# Create a dataframe with gene names and correlations
+correlation_df <- data.frame(
+  gene = names(correlations),
+  correlation = correlations,
+  row.names = NULL
+)
+
+# Filter for genes with correlation greater than the threshold
+high_corr_genes <- correlation_df[abs(correlation_df$correlation) > threshold, ]
+
+# View the filtered high correlation genes
 print(high_corr_genes)
-
 
 # Select top 10 most correlated genes
 if (nrow(high_corr_genes) > 10) {
-  top_genes <- head(high_corr_genes[order(-abs(high_corr_genes))], 10)
+  top_genes <- head(high_corr_genes[order(-abs(high_corr_genes$correlation)), ], 10)
 } else {
   top_genes <- high_corr_genes
-  }
+}
 
 # Convert to a matrix for pheatmap
-top_genes_matrix <- normalized_data[rownames(top_genes), ]
+top_genes_matrix <- coexp_matrix[as.character(top_genes$gene), ]
 
 # Generate heatmap
+library(pheatmap)
 pheatmap(top_genes_matrix, 
          cluster_rows = TRUE, 
          cluster_cols = TRUE,
@@ -660,7 +607,7 @@ get_high_correlation_features <- function(matrix, variable_vector, threshold, me
 }
 
 # Extract normalized data
-normalized_data <- LayerData(Both_Isoforms_Seurat, assay = "RNA", layer = "data")
+normalized_data <- LayerData(combined_seurat_both, assay = "RNA", layer = "data")
 normalized_data <- as.matrix(normalized_data)  # Convert to a dense matrix
 
 high_corr_genes <- get_high_correlation_features(normalized_data, target_gene_expression, threshold)
