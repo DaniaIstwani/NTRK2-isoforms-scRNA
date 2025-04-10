@@ -1,0 +1,63 @@
+---
+title: "processing_different_seurats"
+output: html_document
+date: "2025-04-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+*Processing trunc originated Seurat*
+
+
+```{r}
+# Define the directory containing RDS files
+rds_directory_trunc <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/trunc"
+
+seurat_list_trunc <- read_rds_to_seurat(rds_directory_trunc)
+
+seurat_list_trunc <- rename_cells_in_seurat_objects(seurat_list_trunc)
+
+combined_seurat_trunc <- normalize_and_merge(seurat_list_trunc)
+
+combined_seurat_trunc <- update_orig_ident(combined_seurat_trunc)
+
+combined_seurat_trunc <- process_seurat(combined_seurat_trunc)
+
+combined_seurat_trunc <- run_harmony(combined_seurat_trunc)
+
+save_seurat_object(combined_seurat_trunc, "combined_seurat_trunc.rds")
+
+# Print a success message
+print("Workflow completed successfully! The combined Seurat object has been saved.")
+
+```
+
+
+
+*Processing FL originated Seurat*
+
+
+```{r}
+# Define the directory containing RDS files
+rds_directory_FL <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/FL"
+
+seurat_list_FL <- read_rds_to_seurat(rds_directory_FL)
+
+seurat_list_FL <- rename_cells_in_seurat_objects(seurat_list_FL)
+
+combined_seurat_FL <- normalize_and_merge(seurat_list_FL)
+
+combined_seurat_FL <- update_orig_ident(combined_seurat_FL)
+
+combined_seurat_FL <- process_seurat(combined_seurat_FL)
+
+combined_seurat_FL <- run_harmony(combined_seurat_FL)
+
+save_seurat_object(combined_seurat_FL, "combined_seurat_FL.rds")
+
+# Print a success message
+print("Workflow completed successfully! The combined Seurat object has been saved.")
+
+```
