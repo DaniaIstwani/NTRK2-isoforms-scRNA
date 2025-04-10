@@ -112,7 +112,7 @@ combined_seurat_both <- process_seurat(combined_seurat_both)
 
 For addressing batch effect, grouped by orig.ident
 
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 combined_seurat_both <- run_harmony(combined_seurat_both)
 dimplot_orig_ident <- DimPlot(combined_seurat_both, reduction = "umap", group.by = "orig.ident") 
 
@@ -121,7 +121,7 @@ ggsave("dimplot_orig_ident.png", plot = dimplot_orig_ident, width = 10, height =
 
 # Step 7: Save the final Seurat object
 
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 save_seurat_object(combined_seurat_both, "combined_seurat_both.rds")
 
 # Print a success message
@@ -135,7 +135,7 @@ print("Workflow completed successfully! The combined Seurat object has been save
 
 *Processing "Both" originated Seurat*
 
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 # Define the directory containing RDS files
 rds_directory_both <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both/cm_both/"
 
@@ -164,7 +164,7 @@ print("Workflow completed successfully! The combined Seurat object has been save
 
 
 Check the representation of the transcript isoforms as genes in the metadata
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 isoforms_feature_plot <- FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
 ggsave("isoforms_feature_plot.png", plot = isoforms_feature_plot, width = 10, height = 8, dpi = 300)
 
@@ -175,7 +175,7 @@ ggsave("isoforms_feature_plot.png", plot = isoforms_feature_plot, width = 10, he
 Create clusters and annotate cell-types to clusters using marker genes of cell types of interest
 
 Check reductions done to the object for clustering, and join assay layers for Seurat v5
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 #saving files and loading the previous step to save computational time
 #combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
 
@@ -185,7 +185,7 @@ combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
 
 ```
 
-```{r, fig.width=12, fig.height=10}
+```{r, fig.width=12, fig.height=10, echo=FALSE, fig.show="hide"}
 # combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
 
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
@@ -207,7 +207,7 @@ ggsave("markers_feature_plot.png", plot = markers_feature_plot, width = 10, heig
 
 # Assign Clusters to cell types of interest
 
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 
 
 cluster_to_celltype <- list(
@@ -254,7 +254,7 @@ head(Both_metadata)
 ```
 
 ## Subset seurat to cell types of interest for focused plotting 
-```{r, fig.width=8}
+```{r, echo=FALSE, fig.show="hide"}
 cell_types_of_interest <- c("Neurons", "Oligo", "Astrocytes")
 
 subset_seurat_both <- subset(combined_seurat_both, subset = cell_type %in% cell_types_of_interest)
@@ -279,7 +279,7 @@ ggsave("vln_plot.png", plot = vln_plot, width = 10, height = 8, dpi = 300)
 
 
 # CS_core/ gene co-expression
-```{r}
+```{r, echo=FALSE}
 subset_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/subset_seurat_both.rds")
 
 
@@ -298,7 +298,7 @@ coexp_matrix <- coexp_results$coexpression_matrix
 ## gene co-expression analysis:
 ### Ntrk2trunc
 
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 
 target_gene <- "Ntrk2trunc"
 
@@ -391,7 +391,7 @@ dev.off()  # Close the PNG device
 ```
 
 ### Ntrk2FL
-```{r}
+```{r, echo=FALSE, fig.show="hide"}
 target_gene <- "Ntrk2FL"
 
 target_gene_expression_FL <- coexp_matrix[target_gene, ]
@@ -506,7 +506,7 @@ Molecular Function (MF): GO terms that describe the molecular activities of the 
 
 Cellular Component (CC): GO terms related to the location of the gene product in the cell.
 
-```{r, fig.width=10, fig.height=8}
+```{r, fig.width=10, fig.height=8, echo=FALSE, fig.show="hide"}
 
 brain_gene_list_FL <- genes_0.2_corr_FL$gene #correlated genes with Ntrk2 truncated isoform with r >0.2
 brain_gene_list_trunc <- genes_0.2_corr_trunc$gene # correlated genes with full-length isoform with r > 0.2
@@ -544,14 +544,16 @@ go_plot_trunc_bp <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'EN
                                     ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
                                     ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
 
-go_plot_trunc_bp
-go_plot_FL_bp
 
-go_plot_trunc_mf
-go_plot_FL_mf
+ggsave("go_plot_trunc_bp.png", plot = go_plot_trunc_bp, dpi = 300)
+ggsave("go_plot_FL_bp.png", plot = go_plot_FL_bp, dpi = 300)
 
-go_plot_trunc_cc
-go_plot_FL_cc
+ggsave("go_plot_trunc_mf.png", plot = go_plot_trunc_mf, dpi = 300)
+ggsave("go_plot_FL_mf.png", plot = go_plot_FL_mf, dpi = 300)
+
+ggsave("go_plot_trunc_cc.png", plot = go_plot_trunc_cc, dpi = 300)
+ggsave("go_plot_FL_cc.png", plot = go_plot_FL_cc, dpi = 300)
+
 ```
 
 

@@ -106,49 +106,14 @@ the data.
 
 For addressing batch effect, grouped by orig.ident
 
-    combined_seurat_both <- run_harmony(combined_seurat_both)
-    dimplot_orig_ident <- DimPlot(combined_seurat_both, reduction = "umap", group.by = "orig.ident") 
-
-    ggsave("dimplot_orig_ident.png", plot = dimplot_orig_ident, width = 10, height = 8, dpi = 300)
-
 # Step 7: Save the final Seurat object
-
-    save_seurat_object(combined_seurat_both, "combined_seurat_both.rds")
-
-    # Print a success message
-    print("Workflow completed successfully! The combined Seurat object has been saved.")
 
 # Both Seurat
 
 *Processing “Both” originated Seurat*
 
-    # Define the directory containing RDS files
-    rds_directory_both <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both/cm_both/"
-
-    # 1. Load with renaming data
-    seurat_list_both <- read_rds_to_seurat(rds_directory_both) |> rename_cells_in_seurat_objects()
-
-    seurat_list_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/seurat_list_both.rds")
-    # 2. Normalize and merge
-    combined_seurat_both <- normalize_and_merge(seurat_list_both)
-
-    combined_seurat_both <- update_orig_ident(combined_seurat_both)
-
-    # 3. Process with Harmony integration
-    combined_seurat_both <- process_seurat(combined_seurat_both)
-    combined_seurat_both <- run_harmony(combined_seurat_both, group.by.vars = "orig.ident", npcs = 20)
-
-    # 4. Save the processed object
-    saveRDS(combined_seurat_both, "combined_seurat_both.rds")
-
-    # Print a success message
-    print("Workflow completed successfully! The combined Seurat object has been saved.")
-
 Check the representation of the transcript isoforms as genes in the
 metadata
-
-    isoforms_feature_plot <- FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
-    ggsave("isoforms_feature_plot.png", plot = isoforms_feature_plot, width = 10, height = 8, dpi = 300)
 
 ## Further processing: clustering and cell type annotation:
 
@@ -158,286 +123,17 @@ of cell types of interest
 Check reductions done to the object for clustering, and join assay
 layers for Seurat v5
 
-    #saving files and loading the previous step to save computational time
-    #combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
-
-    names(combined_seurat_both@reductions)
-
-    combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
-
-    # combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
-
-    neurons_markers = c("Map2", "Rbfox3", "Tubb3")
-    oligos_markers = c("Mbp", "Olig1", "Olig2")
-    astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
-
-    count_expressing_cells <- function(markers, combined_seurat_both) {
-      expression_data <- FetchData(combined_seurat_both, vars = markers)
-      num_cells <- sum(rowSums(expression_data > 0) > 0)
-      return(num_cells)
-    }
-
-    markers_feature_plot <- FeaturePlot(combined_seurat_both, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
-    markers_feature_plot
-    ggsave("markers_feature_plot.png", plot = markers_feature_plot, width = 10, height = 8, dpi = 300)
-
 # Assign Clusters to cell types of interest
-
-    cluster_to_celltype <- list(
-    Neurons = c(0, 1, 4, 14, 11, 26, 13, 12),
-    Oligo = c(6,24,22,17,16,27),
-    Astrocytes = c(15, 8, 3, 23, 25)
-    )
-    # Create a vector to store cell type labels
-    cell_type_labels <- rep(NA, ncol(combined_seurat_both))
-
-    # Assign specific cell types based on cluster IDs
-    for (cluster_id in 0:29) {
-      if (cluster_id %in% cluster_to_celltype$Neurons) {
-        cell_type_labels[combined_seurat_both$seurat_clusters == cluster_id] <- "Neurons"
-      } else if (cluster_id %in% cluster_to_celltype$Oligo) {
-        cell_type_labels[combined_seurat_both$seurat_clusters == cluster_id] <- "Oligo"
-      } else if (cluster_id %in% cluster_to_celltype$Astrocytes) {
-        cell_type_labels[combined_seurat_both$seurat_clusters == cluster_id] <- "Astrocytes"
-      }
-    }
-
-    # Assign generic labels to remaining clusters
-    remaining_clusters <- setdiff(0:29, unlist(cluster_to_celltype))
-    for (i in seq_along(remaining_clusters)) {
-      cell_type_labels[combined_seurat_both$seurat_clusters == remaining_clusters[i]] <- paste0("cell_type", i)
-    }
-
-    # Add the cell type labels to the Seurat object
-    combined_seurat_both$cell_type <- cell_type_labels
-
-    # Set the cell type as the active identity
-    Idents(combined_seurat_both) <- combined_seurat_both$cell_type
-    table(combined_seurat_both$cell_type)
-
-    dimplot_cell_types <- DimPlot(combined_seurat_both, reduction = "umap", label = TRUE, group.by = "cell_type", raster = FALSE)
-    dimplot_cell_types
-    ggsave("dimplot_cell_types.jpg", plot= dimplot_cell_types,width = 10, height = 8, dpi = 300)
-
-    #check metadata
-    Both_metadata <- combined_seurat_both@meta.data
-    head(Both_metadata)
 
 ## Subset seurat to cell types of interest for focused plotting
 
-    cell_types_of_interest <- c("Neurons", "Oligo", "Astrocytes")
-
-    subset_seurat_both <- subset(combined_seurat_both, subset = cell_type %in% cell_types_of_interest)
-
-
-    # Generate Plots
-    vln_plot <- VlnPlot(subset_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), pt.size = 0)
-    feature_plot_both <- FeaturePlot(subset_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), raster = FALSE)
-    feature_plot_trunc <- FeaturePlot(subset_seurat_both, features = "Ntrk2trunc", raster = FALSE)
-    feature_plot_fl <- FeaturePlot(subset_seurat_both, features = "Ntrk2FL", raster = FALSE)
-    dim_plot <- DimPlot(subset_seurat_both)
-
-    ggsave("feature_plot_both.png", plot = feature_plot_both, width = 10, height = 8, dpi = 300)
-    ggsave("feature_plot_trunc.png", plot = feature_plot_trunc, width = 10, height = 8, dpi = 300)
-    ggsave("feature_plot_fl.png", plot = feature_plot_fl, width = 10, height = 8, dpi = 300)
-    ggsave("dim_plot.png", plot = dim_plot, width = 10, height = 8, dpi = 300)
-    ggsave("vln_plot.png", plot = vln_plot, width = 10, height = 8, dpi = 300)
-
-    #saveRDS(subset_seurat_both, "subset_seurat_both.rds")
-
 # CS\_core/ gene co-expression
-
-    subset_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/subset_seurat_both.rds")
-
-
-    coexp_results <- run_CSCORE_on_Seurat_v5(
-      seurat_object = subset_seurat_both,
-      assay = "RNA",
-      layer = "data",
-      n_genes = 3000  
-    )
-
-    coexp_matrix <- coexp_results$coexpression_matrix
 
 ## gene co-expression analysis:
 
 ### Ntrk2trunc
 
-    target_gene <- "Ntrk2trunc"
-
-    target_gene_expression_trunc <- coexp_matrix[target_gene, ]
-
-    # Calculate correlations
-    correlations <- apply(coexp_matrix, 1, function(gene_expression) {
-      cor(target_gene_expression_trunc, gene_expression, method = "pearson")
-    })
-
-    # Convert to a data frame for easier handling
-    correlation_df_trunc <- data.frame(
-      gene = names(correlations),
-      correlation = correlations,
-      row.names = NULL
-    )
-
-    # Sort by absolute correlation
-    correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
-
-    # Filter for significant correlations
-    significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.5, ] 
-    sig_genes_trunc <- significant_correlations_trunc$gene
-
-
-    genes_0.1_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.1, ]
-    genes_0.2_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.2, ]
-
-
-    # Plot the top 20 correlated genes (barplot)
-    top_20_genes_trunc <- head(significant_correlations_trunc, 20)
-    top_20_genes_barplot_trunc <- ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
-      geom_bar(stat = "identity", fill = "steelblue") +
-      coord_flip() +
-      labs(title = paste("Top Genes Correlated with", target_gene),
-           x = "Gene",
-           y = "Correlation") +
-      theme_minimal()
-
-    top_20_genes_trunc$gene
-    ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, width = 10, height = 8, dpi = 300)
-
-    # Extract the top 10 genes
-    top10_genes_trunc <- head((significant_correlations_trunc$gene), 11)
-
-    # Subset the expression matrix
-    heatmap_matrix_top10_trunc <- coexp_matrix[top10_genes_trunc, top10_genes_trunc]
-
-    # Check the dimensions of the heatmap matrix
-    dim(heatmap_matrix_top10_trunc)
-
-    # Plot heatmap
-
-    library(ComplexHeatmap)
-    library(circlize)
-    library(grid)
-
-    col_fun <- colorRamp2(c(0.7, 0.8 , 1), c("green", "yellow", "red"))
-
-    col_labels <- colnames(heatmap_matrix_top10_trunc)
-    row_labels <- rownames(heatmap_matrix_top10_trunc)
-
-    # Define styles for column names
-    row_font_colors_trunc <- ifelse(row_labels == "Ntrk2trunc", "red", "black")
-    col_font_colors_trunc <- ifelse(col_labels == "Ntrk2trunc", "red", "black")
-    col_font_face_trunc <- ifelse(col_labels == "Ntrk2trunc", "bold", "plain")
-
-    heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
-            name = "Correlation",
-            col = col_fun,
-            cluster_rows = TRUE,
-            cluster_columns = TRUE,
-            row_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc, col = row_font_colors_trunc),
-            column_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc, col = col_font_colors_trunc),
-            column_names_rot = 45,
-            rect_gp = gpar(col = "white", lwd = 1))
-
-
-    # Draw the heatmap
-    draw(heatmap_plot_trunc, 
-         column_title= "Top 10 Genes Co-expressed with Ntrk2trunc",
-       column_title_gp=grid::gpar(fontsize=16))
-
-    png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
-    draw(heatmap_plot_trunc,
-         column_title = "Top 10 Genes Co-expressed with Ntrk2trunc",
-         column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
-    dev.off()  # Close the PNG device
-
 ### Ntrk2FL
-
-    target_gene <- "Ntrk2FL"
-
-    target_gene_expression_FL <- coexp_matrix[target_gene, ]
-
-    # Calculate correlations
-    correlations <- apply(coexp_matrix, 1, function(gene_expression) {
-      cor(target_gene_expression_FL, gene_expression, method = "pearson")
-    })
-
-    # Convert to a data frame for easier handling
-    correlation_df_FL <- data.frame(
-      gene = names(correlations),
-      correlation = correlations,
-      row.names = NULL
-    )
-
-    # Sort by absolute correlation
-    correlation_df_FL <- correlation_df_FL[order(-abs(correlation_df_FL$correlation)), ]
-
-    # Filter for significant correlations
-    significant_correlations_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.3, ] 
-    sig_genes_FL <- significant_correlations_FL$gene
-
-
-    genes_0.1_corr_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.1, ]
-    genes_0.2_corr_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.2, ]
-
-    # Plot the top 20 correlated genes
-    top_genes <- head(significant_correlations_FL, 20)
-    ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
-      geom_bar(stat = "identity", fill = "steelblue") +
-      coord_flip() +
-      labs(title = paste("Top Genes Correlated with", target_gene),
-           x = "Gene",
-           y = "Correlation") +
-      theme_minimal()
-
-    top_genes$gene
-
-
-    # Extract the top 10 genes
-    top10_genes_FL <- head((significant_correlations_FL$gene), 11)
-
-    # Subset the expression matrix
-    heatmap_matrix_top10_FL <- coexp_matrix[top10_genes_FL, top10_genes_FL]
-
-    # Check the dimensions of the heatmap matrix
-    dim(heatmap_matrix_top10_FL)
-
-    # Plot heatmap
-
-    library(ComplexHeatmap)
-    library(circlize)
-    library(grid)
-
-    col_labels <- colnames(heatmap_matrix_top10_FL)
-    row_labels <- rownames(heatmap_matrix_top10_FL)
-
-    # Define styles for column names
-    row_font_colors_FL <- ifelse(row_labels == "Ntrk2FL", "red", "black")
-    col_font_colors_FL <- ifelse(col_labels == "Ntrk2FL", "red", "black")
-    col_font_face_FL <- ifelse(col_labels == "Ntrk2FL", "bold", "plain")
-
-
-    heatmap_plot_FL <- Heatmap(heatmap_matrix_top10_FL,
-            name = "Correlation",
-            col = col_fun,
-            cluster_rows = TRUE,
-            cluster_columns = TRUE,
-            row_names_gp = gpar(fontsize = 10, fontface = col_font_face, col = row_font_colors),
-            column_names_gp = gpar(fontsize = 10, fontface = col_font_face, col = col_font_colors),
-            column_names_rot = 45,
-            rect_gp = gpar(col = "white", lwd = 1))
-
-
-    # Draw the heatmap
-    draw(heatmap_plot_FL, 
-         column_title= "Top 10 Genes Co-expressed with Ntrk2FL",
-       column_title_gp=grid::gpar(fontsize=16))
-
-    png("Ntrk2FL_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
-    draw(heatmap_plot_FL,
-         column_title = "Top 10 Genes Co-expressed with Ntrk2FL",
-         column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
-    dev.off()  # Close the PNG device
 
 # GO enrichment
 
@@ -470,51 +166,6 @@ of the gene products.
 
 Cellular Component (CC): GO terms related to the location of the gene
 product in the cell.
-
-    brain_gene_list_FL <- genes_0.2_corr_FL$gene #correlated genes with Ntrk2 truncated isoform with r >0.2
-    brain_gene_list_trunc <- genes_0.2_corr_trunc$gene # correlated genes with full-length isoform with r > 0.2
-
-    #convert SYMBOL to ENTERZID 
-    converted_genes_trunc <- bitr(brain_gene_list_trunc, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
-    brain_gene_list_trunc <- converted_genes_trunc$ENTREZID
-
-    converted_genes_FL <-bitr(brain_gene_list_FL, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
-    brain_gene_list_FL <- converted_genes_FL$ENTREZID
-
-
-    # Run GO enrichment with converted gene IDs
-    go_plot_FL_cc <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
-                                     ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                     ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
-
-    go_plot_trunc_cc <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
-                                        ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                        ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
-
-    go_plot_FL_mf <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
-                                     ontology = 'MF', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                     ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
-
-    go_plot_trunc_mf <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
-                                        ontology = 'MF', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                        ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
-
-    go_plot_FL_bp <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
-                                     ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                     ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
-
-    go_plot_trunc_bp <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
-                                        ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                        ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
-
-    go_plot_trunc_bp
-    go_plot_FL_bp
-
-    go_plot_trunc_mf
-    go_plot_FL_mf
-
-    go_plot_trunc_cc
-    go_plot_FL_cc
 
     # Get the GO results for Cellular Component
     go_results <- enrichGO(gene = brain_gene_list_FL, OrgDb = org.Mm.eg.db, ont = "CC", pvalueCutoff = 0.05)
