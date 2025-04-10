@@ -28,7 +28,7 @@
      # 
      # knitr::knit("dropEst_output.Rmd", output = "dropEst_output_analysis.md")
 
-     #rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
+    # rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
 
 The Following steps explain how the Dropest generated count matrices are
 converted and saved as an rds Seurat objects:
@@ -107,7 +107,9 @@ the data.
 For addressing batch effect, grouped by orig.ident
 
     combined_seurat_both <- run_harmony(combined_seurat_both)
-    DimPlot(combined_seurat_both, reduction = "umap", group.by = "orig.ident") 
+    dimplot_orig_ident <- DimPlot(combined_seurat_both, reduction = "umap", group.by = "orig.ident") 
+
+    ggsave("dimplot_orig_ident.png", plot = dimplot_orig_ident, width = 10, height = 8, dpi = 300)
 
 # Step 7: Save the final Seurat object
 
@@ -142,9 +144,11 @@ For addressing batch effect, grouped by orig.ident
     # Print a success message
     print("Workflow completed successfully! The combined Seurat object has been saved.")
 
-\##Check the presense of transcript isoforms as genes in the metadata
+Check the representation of the transcript isoforms as genes in the
+metadata
 
-    FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
+    isoforms_feature_plot <- FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
+    ggsave("isoforms_feature_plot.png", plot = isoforms_feature_plot, width = 10, height = 8, dpi = 300)
 
 ## Further processing: clustering and cell type annotation:
 
@@ -158,7 +162,7 @@ layers for Seurat v5
     #combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
 
     names(combined_seurat_both@reductions)
-    DimPlot(combined_seurat_both, reduction = "umap", label = TRUE ,raster = FALSE)
+
     combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
 
     # combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
@@ -225,46 +229,6 @@ layers for Seurat v5
 
     subset_seurat_both <- subset(combined_seurat_both, subset = cell_type %in% cell_types_of_interest)
 
-    genes_of_interest <- c("Ntrk2FL", "Ntrk2trunc", neurons_markers, astrocytes_markers)  
-
-    # Define colors for each group
-    neurons_colors <- c("#1f77b4", "#aec7e8", "#6baed6", "#4292c6")  # Shades of blue
-    astrocytes_colors <- c("#2ca02c", "#98df8a", "#66c2a4", "#238b45")  # Shades of green
-
-
-    # Plot for Ntrk2FL + neurons markers
-    neurons_plot <- VlnPlot(
-      subset_seurat_both,
-      features = c(neurons_markers, "Ntrk2FL"),
-      group.by = "cell_type",
-      cols = neurons_colors,  # Use shades of blue
-      pt.size = 0,  # Remove points for clarity
-      stack = TRUE,
-      flip = TRUE
-    ) +
-      ggtitle("Ntrk2FL and Neurons Markers") +
-      theme(legend.position = "none")  # Remove legend for cleaner plot
-
-    # Plot for Ntrk2trunc + astrocytes markers
-    astrocytes_plot <- VlnPlot(
-      subset_seurat_both,
-      features = c(astrocytes_markers,"Ntrk2trunc"),
-      group.by = "cell_type",
-      cols = astrocytes_colors,  # Use shades of green
-      pt.size = 0,  # Remove points for clarity
-      stack = TRUE,
-      flip = TRUE, 
-      raster = FALSE
-    ) +
-      ggtitle("Ntrk2trunc and Astrocytes Markers") +
-      theme(legend.position = "none")  # Remove legend for cleaner plot
-
-    # Combine plots side by side
-    combined_plot <- neurons_plot | astrocytes_plot
-
-    # Display the combined plot
-    combined_plot
-    VlnPlot(subset_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), pt.size = 0)
 
     # Generate Plots
     vln_plot <- VlnPlot(subset_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), pt.size = 0)
