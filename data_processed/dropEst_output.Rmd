@@ -675,8 +675,8 @@ combined_seurat_M10 <- normalize_and_merge(seurat_list_M10) |>
   update_orig_ident()
 
 # 3. Process with Harmony integration
-combined_seurat_M10 <- process_seurat(combined_seurat_M10) |>
-  run_harmony()
+combined_seurat_M10 <- process_seurat(combined_seurat_M10)
+combined_seurat_M10 <- run_harmony(combined_seurat_M10)
 
 # 4. Save the processed object
 saveRDS(combined_seurat_M10, "combined_seurat_M10.rds")
@@ -684,5 +684,113 @@ saveRDS(combined_seurat_M10, "combined_seurat_M10.rds")
 
 # Print a success message
 print("Workflow completed successfully! The combined Seurat object has been saved.")
+
+```
+
+```{r}
+
+#saving files and loading the previous step to save computational time
+#combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
+
+names(combined_seurat_M10@reductions)
+
+combined_seurat_M10 <- JoinLayers(combined_seurat_M10, assay = "RNA")
+
+```
+
+```{r, fig.width=12, fig.height=10, echo=FALSE}
+# combined_seurat_M10 <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_M10.rds")
+
+neurons_markers = c("Map2", "Rbfox3", "Tubb3")
+oligos_markers = c("Mbp", "Olig1", "Olig2")
+astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
+
+count_expressing_cells_M10 <- function(markers, combined_seurat_M10) {
+  expression_data <- FetchData(combined_seurat_M10, vars = markers)
+  num_cells <- sum(rowSums(expression_data > 0) > 0)
+  return(num_cells)
+}
+
+markers_feature_plot_M10 <- FeaturePlot(combined_seurat_M10, c(neurons_markers, astrocytes_markers, oligos_markers))
+markers_feature_plot_M10
+
+dimplot_clusters_M10 <- DimPlot(combined_seurat_M10, reduction = "umap", group.by = "seurat_clusters", label = TRUE) 
+dimplot_clusters_M10
+
+ggsave("markers_feature_plot_M10.png", plot = markers_feature_plot_M10, width = 10, height = 8, dpi = 300)
+ggsave("dimplot_clusters_M10.png", plot = dimplot_clusters_M10, width = 10, height = 8, dpi = 300)
+
+
+```
+
+```{r}
+
+cluster_to_celltype <- list(
+  Neurons = c(5, 3, 20, 28, 19, 11, 14),
+  Oligo = c(10, 16, 17, 31, 7, 27, 29),
+  Astrocytes = c(1, 2, 8, 18, 9, 26, 23, 29)
+)
+
+# Create a vector to store cell type labels
+cell_type_labels_M10 <- rep(NA, ncol(combined_seurat_M10))
+
+# Assign specific cell types based on cluster IDs
+for (cluster_id in 0:31) {
+  if (cluster_id %in% cluster_to_celltype$Neurons) {
+    cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- "Neurons"
+  } else if (cluster_id %in% cluster_to_celltype$Oligo) {
+    cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- "Oligo"
+  } else if (cluster_id %in% cluster_to_celltype$Astrocytes) {
+    cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- "Astrocytes"
+  }
+}
+
+# Assign generic labels to remaining clusters
+remaining_clusters_M10 <- setdiff(0:31, unlist(cluster_to_celltype))
+for (i in seq_along(remaining_clusters_M10)) {
+  cluster_id <- remaining_clusters_M10[i]
+  cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- paste0("cell_type", i)
+}
+
+
+# Add the cell type labels to the Seurat object
+combined_seurat_M10$cell_type <- cell_type_labels_M10
+
+# Set the cell type as the active identity
+Idents(combined_seurat_M10) <- combined_seurat_M10$cell_type
+table(combined_seurat_M10$cell_type)
+
+dimplot_cell_types_M10 <- DimPlot(combined_seurat_M10, reduction = "umap", label = TRUE, group.by = "cell_type", raster = FALSE)
+dimplot_cell_types_M10
+ggsave("dimplot_cell_types_M10.jpg", plot= dimplot_cell_types_M10,width = 10, height = 8, dpi = 300)
+
+#check metadata
+M10_metadata <- combined_seurat_M10@meta.data
+head(M10_metadata)
+
+
+```
+
+## Subset seurat to cell types of interest for focused plotting 
+```{r, echo=FALSE}
+cell_types_of_interest <- c("Neurons", "Oligo", "Astrocytes")
+
+subset_seurat_M10 <- subset(combined_seurat_M10, subset = cell_type %in% cell_types_of_interest)
+
+
+# Generate Plots
+vln_plot_M10 <- VlnPlot(subset_seurat_M10, features = "Ntrk2", pt.size = 0)
+feature_plot_M10 <- FeaturePlot(subset_seurat_M10, features = "Ntrk2", raster = FALSE)
+dim_plot_M10 <- DimPlot(subset_seurat_M10)
+vln_plot_M10
+feature_plot_M10
+dim_plot_M10
+
+ggsave("feature_plot_M10.png", plot = feature_plot_M10, width = 10, height = 8, dpi = 300)
+ggsave("dim_plot_M10.png", plot = dim_plot_M10, width = 10, height = 8, dpi = 300)
+ggsave("vln_plot_M10.png", plot = vln_plot_M10, width = 10, height = 8, dpi = 300)
+
+#saveRDS(subset_seurat_M10, "subset_seurat_M10.rds")
+```
 
 ```

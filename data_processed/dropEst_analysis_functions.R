@@ -117,8 +117,14 @@ process_seurat <- function(seurat_object,
                            npcs = 20,               
                            resolution = 0.5,        
                            run_umap = TRUE,         
-                           umap_dims = 1:10) {      
+                           umap_dims = 1:10,
+                           min_cells = 200,         # Minimum cells per gene
+                           mt_threshold = 0.05) {      
+  seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object, pattern = "^MT-")
   
+  seurat_object <- subset(seurat_object, subset = percent.mt < mt_threshold)
+  
+  seurat_object <- subset(seurat_object, subset = nFeature_RNA > min_cells)
   
   # Find variable features
   seurat_object <- FindVariableFeatures(seurat_object, nfeatures = nfeatures)
@@ -141,7 +147,7 @@ process_seurat <- function(seurat_object,
   return(seurat_object)
 }
 
-run_harmony <- function(seurat_object, group.by.vars = "orig.ident", npcs = 30) {
+run_harmony <- function(seurat_object, group.by.vars = "orig.ident", npcs = 20) {
   # Function to integrate the Seurat object using Harmony and recompute UMAP
   # Input: Merged Seurat object
   # Output: Integrated Seurat object with UMAP computed and plotted
@@ -255,66 +261,22 @@ get_high_correlation_features <- function(matrix, variable_vector, threshold, me
   
 }
 
+plot_GO_enrichment <- function(gene_name_vector, gene_id_type = 'ENTREZID', ontology = 'BP', pval_cutoff = 0.2, OrgDb = 'org.Mm.eg.db') {
+#generates Gene Ontology (GO) enrichment dot plots for a given list of genes. It utilizes the enrichGO function from the clusterProfiler package to perform GO enrichment analysis, followed by plotting the results using the enrichplot package.
 
+#Input: A vector of gene identifiers (default is SYMBOL), the type of identifier (ENTREZID), the GO ontology type (BP, CC, MF), and the p-value cutoff, org.Mm.eg.db as the mouse database
+#Output: A GO enrichment dot plot.
 
-
-# Function to plot aggregated gene expression data
-plot_gene_expression <- function(expression_data, gene_of_interest, sample_name, labels) {
-  p <- ggplot(expression_data, aes(x = Object, y = Expression, fill = Object)) +
-    geom_bar(stat = "identity", width = 0.3) + 
-    geom_text(aes(label = round(Expression, 2)), vjust = -0.5, size = 5) + 
-    theme_minimal() +
-    labs(title = paste("Total Expression of", gene_of_interest, "Across", sample_name, "Object(s)"), 
-         y = "Total Expression Level", x = "Object") +
-    scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0, 0.1))) +  
-    theme(axis.text.x = element_text(angle = 35, hjust = 1),  # Rotate x-axis labels for better readability
-          axis.text = element_text(size = 12),
-          axis.title = element_text(size = 14),
-          plot.title = element_text(size = 16, face = "bold", hjust = 0.3),
-          plot.margin = margin(25, 10, 10, 10)) +
-    scale_fill_brewer(palette = "Set2")  #color palette for bars
-
-  plot_file_name <- paste0(gene_of_interest, sample_name, "_barplot.png")
-  #print(plot_file_name)
+  enrich_obj <- enrichGO(gene = gene_name_vector,
+                         OrgDb = 'org.Mm.eg.db', 
+                         keyType = gene_id_type, 
+                         ont = ontology, 
+                         pAdjustMethod = "BH",
+                         pvalueCutoff = pval_cutoff)
   
-  #ggsave(plot_file_name, plot = p, width = 8, height = 7, dpi = 300, device = "png")
-  
-  return(p)  
+  enrichplot::dotplot(enrich_obj, 
+                      label_format = 100)
 }
 
-
-
-
-
-# Function to calculate co-expression with a gene for a given cell type
-get_coexpression_with_gene <- function(seurat_obj, gene_of_interest, cell_type) {
-  # Subset cells of the specified cell type
-  subset_obj <- subset(seurat_obj, idents = cell_type)
-  
-  # normalized expression matrix and convert to dense matrix
-  expr_matrix <- as.matrix(GetAssayData(subset_obj, slot = "data"))
-  
-  # gene of interest exists?
-  if (!(gene_of_interest %in% rownames(expr_matrix))) {
-    stop(paste("Gene", gene_of_interest, "not found in the dataset."))
-  }
-  
-  # get the gene vector
-  gene_vector <- expr_matrix[gene_of_interest, ]
-  
-  # correlations
-  coexpression <- cor(t(expr_matrix), gene_vector, method = "pearson") # can i get the r value?
-  
-  # Convert to a tidy data frame
-  coexpression_df <- data.frame(
-    Gene = rownames(expr_matrix),
-    Correlation = coexpression
-  )
-  
-  # Sort by correlation
-  coexpression_df <- coexpression_df[order(-coexpression_df$Correlation), ]
-  
-  return(coexpression_df)
-}
 
 
