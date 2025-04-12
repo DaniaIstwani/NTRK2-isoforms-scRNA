@@ -1,3 +1,8 @@
+This document demonstrates the analysis of Seurat objects. Those Seurat
+Objects were derived from Dropest Count Matrices Using Different GTF
+Files. Feature Representation column explains which transcript/ gene
+were assigned as gene feature in the corresponding GTF file.
+
 ## Load libraries
 
     library(Seurat)
@@ -28,7 +33,7 @@
      # 
      # knitr::knit("dropEst_output.Rmd", output = "dropEst_output_analysis.md")
 
-    # rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
+     #rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
 
 The Following steps explain how the Dropest generated count matrices are
 converted and saved as an rds Seurat objects:
@@ -167,28 +172,102 @@ of the gene products.
 Cellular Component (CC): GO terms related to the location of the gene
 product in the cell.
 
-    # Get the GO results for Cellular Component
-    go_results <- enrichGO(gene = brain_gene_list_FL, OrgDb = org.Mm.eg.db, ont = "CC", pvalueCutoff = 0.05)
+    # List of ontologies to loop through
+    ontologies <- c("BP", "MF", "CC")
 
-    # Create a custom bar plot of the GO results
-    ggplot(go_results@result, aes(x = reorder(Description, -p.adjust), y = -log10(p.adjust))) +
-        geom_bar(stat = "identity", fill = "skyblue") +
-        coord_flip() + 
-        theme_minimal() +
-        xlab("GO Terms") +
-        ylab("-log10 Adjusted P-Value") +
-        ggtitle("GO Enrichment - Cellular Component")
+    # Function to generate plots for each ontology
+    generate_plots_for_ontology <- function(ontology) {
+      
+      # Compare GO terms for each cluster (trunc and FL)
+      compare_go <- compareCluster(
+        geneCluster = gene_lists,
+        fun = "enrichGO",
+        OrgDb = org.Mm.eg.db,
+        keyType = "ENTREZID",
+        ont = ontology,
+        pvalueCutoff = 0.05,
+        pAdjustMethod = "BH",
+        qvalueCutoff = 0.2,
+        readable = TRUE
+      )
+      
+      go_df <- compare_go@compareClusterResult
+      print(paste("Number of GO terms for ontology", ontology, ":", nrow(go_df)))  # Debugging
+      
+      # Filter significant results
+      filtered_go <- go_df %>%
+        filter(p.adjust < 0.05) %>%
+        dplyr::select(Description, Cluster, p.adjust, GeneRatio)
+      
+      print(paste("Number of significant GO terms for ontology", ontology, ":", nrow(filtered_go)))  # Debugging
+      
+      # If there are no significant terms, stop the function here
+      if (nrow(filtered_go) == 0) {
+        print(paste("No significant GO terms for ontology", ontology))
+        return(NULL)  # Exit if no significant results
+      }
+      
+      # Separate by Cluster (FL vs trunc) and examine the differences
+      fl_terms <- filtered_go %>% filter(Cluster == "FL")
+      trunc_terms <- filtered_go %>% filter(Cluster == "trunc")
+      
+      # Identify the GO terms that are different (unique for each isoform)
+      fl_unique <- setdiff(fl_terms$Description, trunc_terms$Description)
+      trunc_unique <- setdiff(trunc_terms$Description, fl_terms$Description)
+      
+      # Select top N unique terms by significance (lowest p.adjust)
 
+      top_n <- 15
 
-    go_data <- go_results@result
+      fl_top <- fl_terms %>%
+      filter(Description %in% fl_unique) %>%
+      arrange(p.adjust) %>%
+      slice_head(n = top_n)
 
-    # Custom ggplot for GO term enrichment
-    ggplot(go_data, aes(x = reorder(Description, -Count), y = Count, fill = -log10(p.adjust))) +
-        geom_bar(stat = "identity") +
+      trunc_top <- trunc_terms %>%
+      filter(Description %in% trunc_unique) %>%
+      arrange(p.adjust) %>%
+      slice_head(n = top_n)
+
+      
+     top_unique_terms <- data.frame(
+      Term = c(fl_top$Description, trunc_top$Description),
+      Cluster = c(rep("FL", nrow(fl_top)), rep("trunc", nrow(trunc_top))),
+      stringsAsFactors = FALSE
+    )
+     
+      # If there are no unique terms, stop the function here
+      if (nrow(top_unique_terms) == 0) {
+        print(paste("No unique GO terms for ontology", ontology))
+        return(NULL)  # Exit if no unique terms
+      }
+      
+      # Plot using ggplot
+      p <- ggplot(top_unique_terms, aes(x = Term, y = Cluster, color = Cluster)) +
+        geom_point(size = 4) +
         coord_flip() +
-        scale_fill_gradient(low = "blue", high = "red") +
-        labs(x = "GO Terms", y = "Gene Count", title = "GO Enrichment for Ntrk2FL") +
-        theme_minimal()
+        labs(title = paste("Top Unique GO Terms:", ontology, "- Ntrk2FL vs Ntrk2trunc"),
+             x = "GO Term", y = "Cluster") +
+        scale_color_manual(values = c("blue", "red")) +  
+        theme_minimal() +
+        theme(plot.title = element_text(hjust = 0),  
+              plot.title.position = "plot",          
+              axis.text.x = element_text(angle = 45, hjust = 1),
+              axis.text.y = element_text(size = 10))
+      print(p)
+      
+      ggsave(
+      filename = paste0("GO_TopUnique_", ontology, ".png"),
+      plot = p,
+      width = 10,
+      height = 6,
+      dpi = 300
+    )
+    }
+    # Generate plots for each ontology
+    for (ontology in ontologies) {
+      generate_plots_for_ontology(ontology)
+    }
 
 # M10 Seurat
 
@@ -206,8 +285,8 @@ product in the cell.
       update_orig_ident()
 
     # 3. Process with Harmony integration
-    combined_seurat_M10 <- process_seurat(combined_seurat_M10) |>
-      run_harmony()
+    combined_seurat_M10 <- process_seurat(combined_seurat_M10)
+    combined_seurat_M10 <- run_harmony(combined_seurat_M10)
 
     # 4. Save the processed object
     saveRDS(combined_seurat_M10, "combined_seurat_M10.rds")
@@ -215,3 +294,57 @@ product in the cell.
 
     # Print a success message
     print("Workflow completed successfully! The combined Seurat object has been saved.")
+
+    #saving files and loading the previous step to save computational time
+    #combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
+
+    names(combined_seurat_M10@reductions)
+
+    combined_seurat_M10 <- JoinLayers(combined_seurat_M10, assay = "RNA")
+
+    cluster_to_celltype <- list(
+      Neurons = c(5, 3, 20, 28, 19, 11, 14),
+      Oligo = c(10, 16, 17, 31, 7, 27, 29),
+      Astrocytes = c(1, 2, 8, 18, 9, 26, 23, 29)
+    )
+
+    # Create a vector to store cell type labels
+    cell_type_labels_M10 <- rep(NA, ncol(combined_seurat_M10))
+
+    # Assign specific cell types based on cluster IDs
+    for (cluster_id in 0:31) {
+      if (cluster_id %in% cluster_to_celltype$Neurons) {
+        cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- "Neurons"
+      } else if (cluster_id %in% cluster_to_celltype$Oligo) {
+        cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- "Oligo"
+      } else if (cluster_id %in% cluster_to_celltype$Astrocytes) {
+        cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- "Astrocytes"
+      }
+    }
+
+    # Assign generic labels to remaining clusters
+    remaining_clusters_M10 <- setdiff(0:31, unlist(cluster_to_celltype))
+    for (i in seq_along(remaining_clusters_M10)) {
+      cluster_id <- remaining_clusters_M10[i]
+      cell_type_labels_M10[combined_seurat_M10$seurat_clusters == cluster_id] <- paste0("cell_type", i)
+    }
+
+
+    # Add the cell type labels to the Seurat object
+    combined_seurat_M10$cell_type <- cell_type_labels_M10
+
+    # Set the cell type as the active identity
+    Idents(combined_seurat_M10) <- combined_seurat_M10$cell_type
+    table(combined_seurat_M10$cell_type)
+
+    dimplot_cell_types_M10 <- DimPlot(combined_seurat_M10, reduction = "umap", label = TRUE, group.by = "cell_type", raster = FALSE)
+    dimplot_cell_types_M10
+    ggsave("dimplot_cell_types_M10.jpg", plot= dimplot_cell_types_M10,width = 10, height = 8, dpi = 300)
+
+    #check metadata
+    M10_metadata <- combined_seurat_M10@meta.data
+    head(M10_metadata)
+
+## Subset seurat to cell types of interest for focused plotting
+
+\`\`\`

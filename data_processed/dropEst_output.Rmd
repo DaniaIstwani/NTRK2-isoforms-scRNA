@@ -1,8 +1,4 @@
----
-title: "cc"
-output: html_document
-date: '2024-07-15'
----
+This document demonstrates the analysis of Seurat objects. Those Seurat Objects were derived from Dropest Count Matrices Using Different GTF Files. Feature Representation column explains which transcript/ gene were assigned as gene feature in the corresponding GTF file.
 
 ## Load libraries
 
@@ -794,3 +790,4 @@ ggsave("vln_plot_M10.png", plot = vln_plot_M10, width = 10, height = 8, dpi = 30
 ```
 
 ```
+
