@@ -3,6 +3,9 @@ Objects were derived from Dropest Count Matrices Using Different GTF
 Files. Feature Representation column explains which transcript/ gene
 were assigned as gene feature in the corresponding GTF file.
 
+![table of nomenclature for different Seurat
+objects](/data/gpfs/projects/punim2183/data_processed/table_naming_seurats.png)
+
 ## Load libraries
 
     library(Seurat)
