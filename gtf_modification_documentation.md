@@ -1,6 +1,5 @@
 
 
-
 # 📄 GTF Transcript Extractor
 
 This script extracts specific **transcript entries** from a GTF file using transcript IDs. It's useful for isolating annotations related to specific genes or transcripts — for example, extracting isoforms of a gene like `Rbms1`.
@@ -45,6 +44,7 @@ grep -A 1 -B 1 -E "transcript_id \"($rbms1_001|$rbms1_209)\"" "$input_gtf" >> "$
 sort -u "$output_txt" > temp && mv temp "$output_txt"
 
 echo "Extracted all lines for Rbms1-001 and Rbms1-209 to: $output_txt"
+```
 
 
 
@@ -112,7 +112,7 @@ BEGIN {OFS = FS}
 }' "$input_file" > "$output_file"
 
 echo "Processing complete. Output saved to $output_file"
-
+```
 
 # 🧬 Final GTF Cleaner & Custom Transcript Merger
 
@@ -177,4 +177,4 @@ echo "  long-Rbms1:  $(grep -c 'gene_name \"long-Rbms1\"' "$final_gtf")"
 # === 6. Cleanup ===
 rm temp_stage*.gtf
 echo "✅ Process completed. Final file: $final_gtf"
-
+```
