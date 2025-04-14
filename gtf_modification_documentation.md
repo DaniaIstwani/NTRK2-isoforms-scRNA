@@ -1,4 +1,4 @@
-#🔍 Overview
+# 🔍 Overview
 
 This markdown file documents a three-step pipeline for extracting, customizing, and reintegrating transcript annotations in a GTF file. The example focuses on the gene Rbms1, but the logic can be generalized to any gene of interest.
 
