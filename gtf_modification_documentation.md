@@ -1,12 +1,22 @@
+🔍 Overview
+This markdown file documents a three-step pipeline for extracting, customizing, and reintegrating transcript annotations in a GTF file. The example focuses on the gene Rbms1, but the logic can be generalized to any gene of interest.
 
+1️⃣ GTF Transcript Extractor: to extract all entries related to specific transcript IDs from a GTF annotation file.
 
-# 📄 GTF Transcript Extractor
+2️⃣ Transcript Attribute Cleaner and Modifier: to simplify and standardize the extracted transcript entries to prepare for reinsertion.
+Making transcript isoforms as distinct gene features. 
+
+3️⃣ Final GTF Cleaner & Custom Transcript Merger: to remove all original entries for the gene of interest and replace them with cleaned, custom transcript models.
+
+----------------------------------
+
+## 📄 GTF Transcript Extractor
 
 This script extracts specific **transcript entries** from a GTF file using transcript IDs. It's useful for isolating annotations related to specific genes or transcripts — for example, extracting isoforms of a gene like `Rbms1`.
 
 ---
 
-## 🧬 Purpose
+### 🧬 Purpose
 
 Given a list of transcript IDs, this script:
 - Extracts all lines in the GTF file that mention those transcript IDs.
@@ -15,13 +25,13 @@ Given a list of transcript IDs, this script:
 
 ---
 
-# 🔍 Extract Rbms1 Transcript Entries from GTF
+### 🔍 Extract Rbms1 Transcript Entries from GTF
 
 This script extracts specific **Rbms1 transcript entries** (e.g., `Rbms1-001`, `Rbms1-209`) from a GTF annotation file. It includes both the **transcript lines** and their **associated parent gene lines**, if present.
 
 ---
 
-## 🧾 Script: `extract_rbms1_transcripts.sh`
+### 🧾 Script: `extract_rbms1_transcripts.sh`
 
 ```bash
 #!/bin/bash
@@ -48,13 +58,13 @@ echo "Extracted all lines for Rbms1-001 and Rbms1-209 to: $output_txt"
 
 
 
-# 🛠️ Transcript Attribute Cleaner and Modifier
+## 🛠️ Transcript Attribute Cleaner and Modifier
 
 This script processes a subset of GTF transcript entries — for example, those extracted for `Rbms1` — by simplifying and modifying the attributes column. It rewrites transcript entries to represent minimal custom gene models such as `short-Rbms1` and `long-Rbms1`.
 
 ---
 
-## 🎯 Purpose
+### 🎯 Purpose
 
 Given a GTF file containing selected transcript entries (e.g., from `rbms1_transcripts.txt`), this script:
 
@@ -67,7 +77,7 @@ Given a GTF file containing selected transcript entries (e.g., from `rbms1_trans
 
 ---
 
-## 🧾 Script: `process_rbms1_transcripts.sh`
+### 🧾 Script: `process_rbms1_transcripts.sh`
 
 ```bash
 #!/bin/bash
@@ -114,13 +124,13 @@ BEGIN {OFS = FS}
 echo "Processing complete. Output saved to $output_file"
 ```
 
-# 🧬 Final GTF Cleaner & Custom Transcript Merger
+## 🧬 Final GTF Cleaner & Custom Transcript Merger
 
 This script removes all traces of a specific gene (e.g., `Rbms1`) from a GTF annotation file and inserts custom-curated transcript entries in its place. The result is a clean, final GTF annotation ready for visualization or downstream analysis.
 
 ---
 
-## 🎯 Purpose
+### 🎯 Purpose
 
 Given:
 - An **original GTF** file (e.g., from Ensembl or GENCODE)
@@ -135,7 +145,7 @@ This script:
 
 ---
 
-## 🧾 Script: `finalize_gtf.sh`
+### 🧾 Script: `finalize_gtf.sh`
 
 ```bash
 #!/bin/bash
