@@ -91,7 +91,7 @@ FL_ISOFORM="ENSMUST00000079828.5"    # Full-length
 TRUNC_ISOFORM="ENSMUST00000109838.8" # Truncated
 
 INPUT_FILE="Ntrk2_transcripts.txt"    # From extractor
-OUTPUT_FILE="processed_transcripts.gtf"
+OUTPUT_FILE="processed_Ntrk2_transcripts.gtf"
 
 # ===== PROCESSING =====
 awk -F'\t' -v fl="$FL_ISOFORM" -v trunc="$TRUNC_ISOFORM" \
@@ -147,7 +147,7 @@ This script:
 
 ---
 
-### 🧾 Script: `finalize_gtf.sh` - this script takes about 40-60 seconds to run 
+### 🧾 Script: `finalize_Ntrk2_gtf.sh` - this script takes about 40-60 seconds to run 
 
 ```
 #!/bin/bash
@@ -159,8 +159,8 @@ FL_ISOFORM="ENSMUST00000079828.5"    # Ntrk2FL
 TRUNC_ISOFORM="ENSMUST00000109838.8" # Ntrk2trunc
 
 ORIGINAL_GTF="original.gtf"
-PROCESSED_TRANSCRIPTS="processed_transcripts.gtf"
-FINAL_GTF="final_annotation.gtf"
+PROCESSED_TRANSCRIPTS="processed_Ntrk2_transcripts.gtf"
+FINAL_GTF="final_Ntrk2_annotation.gtf"
 
 # ===== PROCESSING =====
 echo "=== REMOVING ORIGINAL NTRK2 ENTRIES ==="
