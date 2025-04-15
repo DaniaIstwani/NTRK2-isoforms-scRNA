@@ -147,46 +147,103 @@ This script:
 
 ---
 
-### 🧾 Script: `finalize_Ntrk2_gtf.sh` - this script takes about 40-60 seconds to run 
+### 🧾 Script: `finalise_Ntrk2_gtf.sh` - this script takes about 40-60 seconds to run 
 
 ```
 #!/bin/bash
 
 # ===== CONFIGURATION =====
-GENE_ID="ENSMUSG00000055254.14"      # gene ID
-GENE_NAME="Ntrk2"
-FL_ISOFORM="ENSMUST00000079828.5"    # Ntrk2FL
-TRUNC_ISOFORM="ENSMUST00000109838.8" # Ntrk2trunc
+LOG_FILE="finalize_gtf.log"
+ERROR_FILE="finalize_gtf.errors"
+GENE_ID="ENSMUSG00000055254.14"      # Ntrk2 gene ID
+FL_ISOFORM="ENSMUST00000079828.5"    # Full-length
+TRUNC_ISOFORM="ENSMUST00000109838.8" # Truncated
+FL_NAME="Ntrk2FL"                    # Custom name
+TRUNC_NAME="Ntrk2trunc"              # Custom name
 
 ORIGINAL_GTF="original.gtf"
 PROCESSED_TRANSCRIPTS="processed_Ntrk2_transcripts.gtf"
 FINAL_GTF="final_Ntrk2_annotation.gtf"
 
-# ===== PROCESSING =====
-echo "=== REMOVING ORIGINAL NTRK2 ENTRIES ==="
-grep -v -E \
+# Clear previous logs
+:> "$LOG_FILE"
+:> "$ERROR_FILE"
+
+# ===== FUNCTIONS =====
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+error() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" | tee -a "$LOG_FILE" "$ERROR_FILE"
+    exit 1
+}
+
+# ===== MAIN EXECUTION =====
+log "Starting GTF finalisation..."
+
+# Validate input files
+[ -f "$ORIGINAL_GTF" ] || error "Missing input GTF: $ORIGINAL_GTF"
+[ -f "$PROCESSED_TRANSCRIPTS" ] || error "Missing processed transcripts: $PROCESSED_TRANSCRIPTS"
+
+# ===== STRICT CLEANING =====
+log "Removing all Ntrk2 traces..."
+if ! grep -v -E \
     -e "gene_id \"${GENE_ID}\"" \
-    -e "gene_name \"${GENE_NAME}\"" \
-    -e "transcript_name \"${GENE_NAME}" \
-    -e "transcript_id \"${FL_ISOFORM}\"" \
-    -e "transcript_id \"${TRUNC_ISOFORM}\"" \
-    "$ORIGINAL_GTF" > temp_stage1.gtf
+    -e "gene_name \"Ntrk2\"" \
+    -e "transcript_id \"(${FL_ISOFORM}|${TRUNC_ISOFORM})\"" \
+    -i -e "Ntrk2" \
+    "$ORIGINAL_GTF" > temp_stage1.gtf 2>> "$ERROR_FILE"; then
+    error "Failed during Ntrk2 removal"
+fi
 
-grep -v -i "${GENE_NAME}" temp_stage1.gtf > temp_stage2.gtf
+log "Removing contaminants..."
+if ! grep -v "gene_id \"ENSMUSG00000021557" temp_stage1.gtf > temp_stage2.gtf 2>> "$ERROR_FILE"; then
+    error "Failed during contaminant removal"
+fi
 
-echo "=== INSERTING CUSTOM ISOFORMS ==="
-cat "$PROCESSED_TRANSCRIPTS" >> temp_stage2.gtf
+# ===== ADD CUSTOM ISOFORMS =====
+log "Inserting custom isoforms..."
+if ! cat "$PROCESSED_TRANSCRIPTS" >> temp_stage2.gtf 2>> "$ERROR_FILE"; then
+    error "Failed to append custom isoforms"
+fi
 
+# ===== FINAL SORTING =====
+log "Generating final GTF..."
 {
     grep "^#" temp_stage2.gtf 2>/dev/null || true
-    grep -v "^#" temp_stage2.gtf | sort -k1,1 -k4,4n
-} > "$FINAL_GTF"
+    grep -v "^#" temp_stage2.gtf | sort -k1,1 -k4,4n 2>> "$ERROR_FILE"
+} > "$FINAL_GTF" || error "Failed during sorting"
 
 # ===== VALIDATION =====
-echo "=== FINAL COUNTS ==="
-echo "Ntrk2FL entries:    $(grep -c 'Ntrk2FL' "$FINAL_GTF")"
-echo "Ntrk2trunc entries: $(grep -c 'Ntrk2trunc' "$FINAL_GTF")"
+log "=== VALIDATION RESULTS ==="
+log "Custom isoforms count:"
+grep -c "gene_name \"${FL_NAME}\"" "$FINAL_GTF" | tee -a "$LOG_FILE"
+grep -c "gene_name \"${TRUNC_NAME}\"" "$FINAL_GTF" | tee -a "$LOG_FILE"
 
+log "Checking for contaminants..."
+CONTAMINANTS=$(grep -i "Ntrk2" "$FINAL_GTF" | grep -vE "${FL_NAME}|${TRUNC_NAME}")
+if [ -n "$CONTAMINANTS" ]; then
+    error "Found remaining contaminants:\n$CONTAMINANTS"
+else
+    log "No Ntrk2 contaminants found"
+fi
+
+OTHER_GENES=$(grep "ENSMUSG00000021557" "$FINAL_GTF")
+if [ -n "$OTHER_GENES" ]; then
+    error "Found unrelated genes:\n$OTHER_GENES"
+else
+    log "No unrelated genes found"
+fi
+
+# ===== CLEANUP =====
 rm temp_stage*.gtf
-echo "✅ Final GTF generated: $FINAL_GTF"
+log "✅ Successfully generated $FINAL_GTF"
+echo "Detailed logs available in: $LOG_FILE"
+if [ -s "$ERROR_FILE" ]; then
+    echo "⚠️  Errors detected - see $ERROR_FILE"
+fi
+
 ```
+Even after the cleaning step of trances of "Ntrk2" parent gene, after visualisation it might be visible as a gene in IGV. 
+So it's worth checking the final annotation file for remaining line(s) with "Ntrk2" being annotated as gene along with the new genes related to the transcript isoforms.
