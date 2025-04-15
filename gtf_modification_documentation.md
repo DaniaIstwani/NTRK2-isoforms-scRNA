@@ -245,5 +245,48 @@ if [ -s "$ERROR_FILE" ]; then
 fi
 
 ```
-Even after the cleaning step of trances of "Ntrk2" parent gene, after visualisation it might be visible as a gene in IGV. 
-So it's worth checking the final annotation file for remaining line(s) with "Ntrk2" being annotated as gene along with the new genes related to the transcript isoforms.
+# Important Validation Note
+
+Despite rigorous cleaning steps to remove all traces of the original Ntrk2 parent gene, visual inspection in IGV is strongly recommended because:
+
+- Potential Residual Annotations
+
+- Some genomic viewers (like IGV) may still display the original gene if:
+
+    - A single annotation line (e.g., gene or mRNA feature) remains in the GTF
+
+    - The gene appears in reference genome tracks
+
+## Validation Protocol
+
+
+Before analysis:
+
+Search the final GTF for residual Ntrk2 entries:
+
+```
+grep -i 'gene_name "Ntrk2"' final_annotation.gtf | grep -vE "Ntrk2FL|Ntrk2trunc"
+```
+
+
+## IGV-specific checks:
+
+- Load the modified GTF 
+
+- Search for "Ntrk2" in the region of interest
+
+- Verify only two genes appear:
+
+*Ntrk2FL (full-length isoform)
+
+*Ntrk2trunc (truncated isoform)
+
+**If Contaminants Persist**
+
+Use this nuclear cleanup command:
+
+```
+awk -F'\t' '$3 != "gene" || $9 !~ /Ntrk2/' final_annotation.gtf > cleaned_final.gtf
+```
+
+This removes any lingering gene-type entries containing "Ntrk2".
