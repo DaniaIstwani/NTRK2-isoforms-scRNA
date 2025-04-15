@@ -55,7 +55,9 @@ sort -u "$output_txt" > temp && mv temp "$output_txt"
 echo "✅ Extracted:"
 echo "- $FL_ISOFORM (Ntrk2FL)"
 echo "- $TRUNC_ISOFORM (Ntrk2trunc)"
-echo "Output: $output_txt"```
+echo "Output: $output_txt"
+
+```
 
 
 
