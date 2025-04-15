@@ -128,6 +128,8 @@ grep 'gene_name' "$OUTPUT_FILE" | awk -F'"' '{print $2}' | sort | uniq -c
 
 This script removes all traces of a specific gene (e.g., `Ntrk2`) from a GTF annotation file and inserts custom-curated transcript entries in its place. The result is a clean, final GTF annotation ready for visualization or downstream analysis.
 IGV is recommended for viewing the "new genes'" annotation. The resulting GTF file will be sorted, so indexing using IGV-tools is the only step needed before viewing.
+
+
 ---
 
 ### 🎯 Purpose
