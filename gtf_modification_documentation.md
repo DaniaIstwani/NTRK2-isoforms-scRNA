@@ -290,3 +290,8 @@ awk -F'\t' '$3 != "gene" || $9 !~ /Ntrk2/' final_annotation.gtf > cleaned_final.
 ```
 
 This removes any lingering gene-type entries containing "Ntrk2".
+
+
+
+![IGV Check](./IGV_Ntrk2isoforms_annotation.png) 
+*<sup>This should show only your custom isoforms (Ntrk2FL/Ntrk2trunc) with no parent gene</sup>*
