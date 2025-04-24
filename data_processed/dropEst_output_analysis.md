@@ -36,7 +36,7 @@ objects](/data/gpfs/projects/punim2183/data_processed/table_naming_seurats.png)
      # 
      # knitr::knit("dropEst_output.Rmd", output = "dropEst_output_analysis.md")
 
-     #rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
+     rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
 
 The Following steps explain how the Dropest generated count matrices are
 converted and saved as an rds Seurat objects:
@@ -175,12 +175,15 @@ of the gene products.
 Cellular Component (CC): GO terms related to the location of the gene
 product in the cell.
 
+To compare GO enrichment results between two gene clusters (FL and
+trunc) across different ontology types (BP, MF, CC), and visualize GO
+terms uniquely enriched in one cluster but not the other.
+
     # List of ontologies to loop through
     ontologies <- c("BP", "MF", "CC")
 
     # Function to generate plots for each ontology
     generate_plots_for_ontology <- function(ontology) {
-      
       # Compare GO terms for each cluster (trunc and FL)
       compare_go <- compareCluster(
         geneCluster = gene_lists,
