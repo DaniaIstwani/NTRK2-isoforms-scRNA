@@ -44,17 +44,8 @@ digraph SeuratWorkflow {
 
 ```
     
-```
 
-## Including Plots
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
 
 
 ```{r}
@@ -63,7 +54,7 @@ library(dplyr)
 library(ggplot2)
 
 # 1. Load data and create Seurat object
-new_cm <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm_neurons.rds")
+new_cm <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm.rds")
 new_seurat <- CreateSeuratObject(counts = new_cm$cm, project = "scRNA_project")
 
 # 2. Quality Control
@@ -83,7 +74,7 @@ new_seurat <- subset(new_seurat,
                             percent.mt < 20)
 
 # 3. Normalization and Feature Selection
-new_seurat <- NormalizeData(new_seurat, normalization.method = "LogNormalize")
+new_seurat <- NormalizeData(new_seurat)
 new_seurat <- FindVariableFeatures(new_seurat, selection.method = "vst", nfeatures = 2000)
 
 # Identify top variable features
@@ -101,9 +92,9 @@ print(DimPlot(new_seurat, reduction = "pca"))
 print(ElbowPlot(new_seurat))
 
 # 5. Clustering
-new_seurat <- FindNeighbors(new_seurat, dims = 1:15) # Adjust based on ElbowPlot
+new_seurat <- FindNeighbors(new_seurat, dims = 1:20) # Adjust based on ElbowPlot
 new_seurat <- FindClusters(new_seurat, resolution = 0.5) # Test 0.4-1.2 range
-new_seurat <- RunUMAP(new_seurat, dims = 1:15)
+new_seurat <- RunUMAP(new_seurat, dims = 1:20)
 
 # Visualize clusters
 cluster_plot <- DimPlot(new_seurat, reduction = "umap", label = TRUE)
@@ -127,6 +118,24 @@ print(FeaturePlot(new_seurat, features = top_markers$gene[1:4]))
 # 7. Specific Gene Visualization
 FeaturePlot(new_seurat, features = c("Ntrk2FL", "Ntrk2trunc"))
 
+
+ref <- celldex::MouseRNAseqData()
+
+sce_new <- as.SingleCellExperiment(new_seurat, assay = "RNA")
+
+#pred <- SingleR(test = sce, ref = ref, labels = ref$label.main)
+
+#combined_seurat_both$SingleR_labels <- pred$labels
+
+#using this instead cause we've already clustered
+cluster.pred <- SingleR(test = sce_new, 
+                        ref = ref, labels = ref$label.main,
+                        clusters = new_seurat$seurat_clusters,
+                        assay.type.test = "counts")
+new_seurat$SingleR_cluster_labels <- cluster.pred$labels[new_seurat$seurat_clusters]
+
+DimPlot(new_seurat, group.by = "SingleR_cluster_labels", label = TRUE)
+
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
 #oligos_markers = c("Mbp", "Olig1", "Olig2")
 astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
@@ -137,8 +146,19 @@ FeaturePlot(new_seurat, features = "Ntrk2trunc")
 
 
 # 8. Save Results
-# saveRDS(new_seurat, "processed_seurat_final.rds")
+# saveRDS(new_seurat, "processed_seurat_neurons.rds")
 # write.csv(all_markers, "cluster_markers_all.csv")
 # write.csv(top_markers, "cluster_markers_top.csv")
+
+```
+
+```{r}
+coexp_results_new <- run_CSCORE_on_Seurat_v5(
+  seurat_object = new_seurat,
+  assay = "SCT",
+  layer = "data",
+  n_genes = 3000  
+)
+
 
 ```

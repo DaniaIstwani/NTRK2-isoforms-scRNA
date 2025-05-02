@@ -39,14 +39,32 @@ library(gridExtra)
 ```{r}
 #loom_data <- SeuratDisk::Connect(filename = "/data/gpfs/projects/punim2183/data_processed/l5_All.loom", mode = 'r')
 #mouse_cortex_data <- as.Seurat(loom_data)
-#saveRDS(mouse_cortex_data, file = '/data/gpfs/projects/punim2183/data_processed/mouse_cortex_data.rds')
-
+saveRDS(mouse_cortex_data, file = '/data/gpfs/projects/punim2183/data_processed/mouse_cortex_data.rds')
 mouse_cortex_data <- readRDS("/data/gpfs/projects/punim2183/data_processed/mouse_cortex_scRNAseq.rds")
 
-mouse_cortex_data <- NormalizeData(mouse_cortex_data) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+mouse_list <- SplitObject(mouse_cortex_data, split.by = "Tissue") 
 
-mouse_cortex_data <- RunUMAP(mouse_cortex_data, reduction = 'pca', dims = 1:10, assay = 'RNA', 
-                             reduction.name = "rna_umap", reduction.key = "RNA_umap_")
+mouse_list <- lapply(mouse_list, function(x) {
+  x <- NormalizeData(x)
+  x <- FindVariableFeatures(x)
+  return(x)
+})
+
+anchors <- FindIntegrationAnchors(object.list = mouse_list, dims = 1:30)
+mouse_integrated <- IntegrateData(anchorset = anchors, dims = 1:30)
+DefaultAssay(mouse_integrated) <- "integrated"
+
+mouse_integrated <- ScaleData(mouse_integrated) %>%
+  RunPCA(npcs = 30) %>%
+  RunUMAP(reduction = "pca", dims = 1:10)
+DefaultAssay(mouse_integrated) <- "RNA"
+VlnPlot(mouse_integrated, features = "Ntrk2", group.by = "Tissue")
+
+
+# mouse_cortex_data <- NormalizeData(mouse_cortex_data) %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+# 
+# mouse_cortex_data <- RunUMAP(mouse_cortex_data, reduction = 'pca', dims = 1:10, assay = 'RNA', 
+#                              reduction.name = "rna_umap", reduction.key = "RNA_umap")
 
 ```
 
@@ -54,8 +72,8 @@ mouse_cortex_data <- RunUMAP(mouse_cortex_data, reduction = 'pca', dims = 1:10, 
 
 ntrk2_expr <- FetchData(mouse_cortex_data, vars = c("Ntrk2", "Tissue", "SampleID"))
 
-ntrk2_tissue <- ntrk2_expr %>% group_by(Tissue) %>%
-  arrange(desc(ntrk2_tissue))
+ntrk2_tissue <- ntrk2_expr %>% group_by(Tissue)
+ntrk2_tissue<- arrange(desc(ntrk2_tissue))
 ntrk2_tissue
 
 # mean expression of Ntrk2 per tissue
@@ -80,17 +98,17 @@ avg_expression_values
 sorted_tissues <- sort(avg_expression_values, decreasing = TRUE)  # Sort in descending order
 
 # Step 3: Get the top 5 tissues
-top_12_tissues <- head(sorted_tissues, 12)
-top_12_tissues <- as.data.frame(top_12_tissues)
+top_15_tissues <- head(sorted_tissues, 15)
+top_15_tissues <- as.data.frame(top_15_tissues)
 
-row.names(top_12_tissues)
+row.names(top_15_tissues)
 paste(rownames(top_15_tissues), collapse = ", ")
 
 
 
-top_12_tissues_vector <- setNames(as.numeric(top_12_tissues[, 1]), rownames(top_12_tissues))
-barplot(top_12_tissues_vector, 
-        main = "Top 12 Tissues by Ntrk2 Expression", 
+top_15_tissues_vector <- setNames(as.numeric(top_15_tissues[, 1]), rownames(top_15_tissues))
+barplot(top_15_tissues_vector, 
+        main = "Top 15 Tissues by Ntrk2 Expression", 
         ylab = "Average Ntrk2 Expression", 
         col = "skyblue", 
         las = 2)  # Rotate labels
@@ -102,7 +120,7 @@ barplot(top_12_tissues_vector,
 #         ylab = "Average Ntrk2 Expression", 
 #         col = "skyblue", las = 2)  # Rotate labels for clarity
 
-selected_samples <- unique(mouse_cortex_data@meta.data$SampleID[mouse_cortex_data@meta.data$Tissue %in% c("Hypoth", "Ctx3", "Ctx1.5", "Ctx2", "MBv", "Amygd", "HC", "OB", "MBd", "Ctx1", "StriatDor", "CA1")])
+selected_samples <- unique(mouse_cortex_data@meta.data$SampleID[mouse_cortex_data@meta.data$Tissue %in% c("Hypoth", "Ctx3", "Ctx1.5", "Ctx2", "MBv", "Amygd", "HC", "OB", "MBd", "Ctx1", "StriatDor", "CA1", "DRG", "StriatVent", "Thal")])
 
 print(selected_samples)
 length(selected_samples)
@@ -110,7 +128,7 @@ length(selected_samples)
 # "Hypoth","Ctx3", "Ctx1.5", "Ctx2", "MBv", "Amygd", "HC", "OB", "MBd","Ctx1", "StriatDor", "CA1", "DRG", "StriatVent","Thal"
 
 
-#top 10 tissues resulted in 22 samples, top 12 gave 71 and top 15 gave ~ 83
+#top 10 tissues resulted in 22 samples, top 12 gave 71 and top 15 gave ~ 86
 ```
 
 ## CS-CORE:

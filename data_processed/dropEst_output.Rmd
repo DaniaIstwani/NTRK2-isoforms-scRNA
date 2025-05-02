@@ -26,6 +26,11 @@ library(org.Mm.eg.db)
 library(enrichplot)
 library(glmGamPoi)
 
+library(SingleR)
+library(celldex)
+library(Seurat)
+library(SingleCellExperiment)
+
 
 source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.R")
 #save.image(file = "dropEst_output.RData")
@@ -59,13 +64,13 @@ Extract naming patterns from the names of Seurat objects. And rename cell names 
 
 *Extract the naming pattern (e.g., "10X05_1")* 
 
-**input** seurat_objects_both (a list of Seurat objects with names like count_matrix.rds_10X05_1.bam.1_both.gtf).
+**input** combined_seurat_bothects_both (a list of Seurat objects with names like count_matrix.rds_10X05_1.bam.1_both.gtf).
 
 
-**Output** Each Seurat object in seurat_objects_both now has cell names prefixed with the corresponding naming pattern (e.g., "10X05_1\_Cell_1").
+**Output** Each Seurat object in combined_seurat_bothects_both now has cell names prefixed with the corresponding naming pattern (e.g., "10X05_1\_Cell_1").
 
 ```{r}
-seurat_list_both <- rename_cells_in_seurat_objects(seurat_list_both)
+seurat_list_both <- rename_cells_in_combined_seurat_bothects(seurat_list_both)
 ```
 
 # Step 3: Normalize and merge Seurat objects
@@ -122,7 +127,7 @@ ggsave("dimplot_orig_ident.png", plot = dimplot_orig_ident, width = 10, height =
 # Step 7: Save the final Seurat object
 
 ```{r, echo=FALSE}
-save_seurat_object(combined_seurat_both, "combined_seurat_both.rds")
+save_combined_seurat_bothect(combined_seurat_both, "combined_seurat_both.rds")
 
 # Print a success message
 print("Workflow completed successfully! The combined Seurat object has been saved.")
@@ -140,7 +145,7 @@ print("Workflow completed successfully! The combined Seurat object has been save
 rds_directory_both <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both/cm_both/"
 
 # 1. Load with renaming data
-seurat_list_both <- read_rds_to_seurat(rds_directory_both) |> rename_cells_in_seurat_objects()
+seurat_list_both <- read_rds_to_seurat(rds_directory_both) |> rename_cells_in_combined_seurat_bothects()
 
 seurat_list_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/seurat_list_both.rds")
 # 2. Normalize and merge
@@ -165,8 +170,12 @@ print("Workflow completed successfully! The combined Seurat object has been save
 
 Check the representation of the transcript isoforms as genes in the metadata
 ```{r, echo=FALSE}
-isoforms_feature_plot <- FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
-ggsave("isoforms_feature_plot.png", plot = isoforms_feature_plot, width = 10, height = 8, dpi = 300)
+
+feature_plots <- FeaturePlot(combined_seurat_both, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
+feature_plots[[1]] <- feature_plots[[1]] + labs(title = "TrkB.T1")
+feature_plots[[2]] <- feature_plots[[2]] + labs(title = "TrkB.FL")
+feature_plots
+ggsave("isoforms_feature_plot.png", plot = feature_plots, width = 10, height = 8, dpi = 300)
 
 ```
 
@@ -186,7 +195,7 @@ combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
 ```
 
 ```{r, fig.width=12, fig.height=10, echo=FALSE}
-# combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
+ combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
 
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
 oligos_markers = c("Mbp", "Olig1", "Olig2")
@@ -200,12 +209,38 @@ count_expressing_cells <- function(markers, combined_seurat_both) {
 
 markers_feature_plot <- FeaturePlot(combined_seurat_both, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
 markers_feature_plot
-ggsave("markers_feature_plot.png", plot = markers_feature_plot, width = 10, height = 8, dpi = 300)
+#ggsave("markers_feature_plot.png", plot = markers_feature_plot, width = 10, height = 8, dpi = 300)
 
 
 ```
 
-# Assign Clusters to cell types of interest
+# Cell annotation:
+
+```{r}
+combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
+
+combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
+
+ref <- celldex::MouseRNAseqData()
+
+sce <- as.SingleCellExperiment(combined_seurat_both, assay = "RNA")
+
+#pred <- SingleR(test = sce, ref = ref, labels = ref$label.main)
+
+#combined_seurat_both$SingleR_labels <- pred$labels
+
+#using this instead cause we've already clustered
+cluster.pred <- SingleR(test = sce, ref = ref, labels = ref$label.main, clusters = combined_seurat_both$seurat_clusters)
+combined_seurat_both$SingleR_cluster_labels <- cluster.pred$labels[combined_seurat_both$seurat_clusters]
+
+cell_types_dim <- DimPlot(combined_seurat_both, group.by = "SingleR_cluster_labels", label = TRUE) +labs(title = "Cell Type Clusters")
+cell_types_dim
+
+saveRDS(combined_seurat_both, "combined_seurat_both.rds")
+ggsave("cell_types_dim.png", plot = cell_types_dim, width = 10, height = 8, dpi = 300)
+
+```
+# Assign Clusters to cell types of interest manually
 
 ```{r, echo=FALSE}
 
@@ -253,6 +288,7 @@ head(Both_metadata)
 
 ```
 
+
 ## Subset seurat to cell types of interest for focused plotting 
 ```{r, echo=FALSE}
 cell_types_of_interest <- c("Neurons", "Oligo", "Astrocytes")
@@ -278,17 +314,55 @@ ggsave("vln_plot.png", plot = vln_plot, width = 10, height = 8, dpi = 300)
 
 
 
+
 # CS_core/ gene co-expression
 ```{r, echo=FALSE}
-subset_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/subset_seurat_both.rds")
+#subset_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/subset_seurat_both.rds")
 
+# get layer data (returns matrix) this is for Seurat V5(when dealing with the whole data not only the subset)
+counts_matrix <- LayerData(combined_seurat_both, assay = "RNA", layer = "counts")
+data_matrix <- LayerData(combined_seurat_both, assay = "RNA", layer = "data")
 
-coexp_results <- run_CSCORE_on_Seurat_v5(
-  seurat_object = subset_seurat_both,
+# set layer data
+combined_seurat_both <- SetAssayData(
+  object = combined_seurat_both,
+  assay = "RNA",
+  layer = "counts",
+  new.data = as(counts_matrix, "dgCMatrix")  # Convert to sparse
+)
+
+# For normalized data
+combined_seurat_both <- SetAssayData(
+  object = combined_seurat_both,
   assay = "RNA",
   layer = "data",
-  n_genes = 3000  
+  new.data = as(data_matrix, "dgCMatrix")
 )
+
+
+# Before running CSCORE, ensure data stays sparse
+library(Matrix)
+combined_seurat_both <- SetAssayData(
+  combined_seurat_both,
+  assay = "RNA",
+  layer = "data",
+  new.data = as(LayerData(combined_seurat_both, layer = "data"), "dgCMatrix")
+)
+
+coexp_results <- run_CSCORE_on_Seurat_v5(
+  combined_seurat_both,
+  assay = "RNA",
+  layer = "data",
+  n_genes = 1500,
+)
+
+# coexp_results <- run_CSCORE_on_Seurat_v5_optimized(
+#   combined_seurat_bothect = combined_seurat_both,
+#   assay = "RNA",
+#   layer = "data",
+#   n_genes = 5000,
+# )
+
 
 coexp_matrix <- coexp_results$coexpression_matrix
 ```
@@ -305,14 +379,13 @@ target_gene <- "Ntrk2trunc"
 target_gene_expression_trunc <- coexp_matrix[target_gene, ]
 
 # Calculate correlations
-correlations <- apply(coexp_matrix, 1, function(gene_expression) {
-  cor(target_gene_expression_trunc, gene_expression, method = "pearson")
-})
+# correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+#   cor(target_gene_expression_trunc, gene_expression, method = "pearson")
+# })
 
-# Convert to a data frame for easier handling
 correlation_df_trunc <- data.frame(
-  gene = names(correlations),
-  correlation = correlations,
+  gene = rownames(coexp_matrix),
+  correlation = coexp_matrix["Ntrk2trunc", ],
   row.names = NULL
 )
 
@@ -337,6 +410,7 @@ top_20_genes_barplot_trunc <- ggplot(top_20_genes_trunc, aes(x = reorder(gene, c
        x = "Gene",
        y = "Correlation") +
   theme_minimal()
+top_20_genes_barplot_trunc
 
 top_20_genes_trunc$gene
 ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, width = 10, height = 8, dpi = 300)
@@ -356,7 +430,7 @@ library(ComplexHeatmap)
 library(circlize)
 library(grid)
 
-col_fun <- colorRamp2(c(0.7, 0.8 , 1), c("green", "yellow", "red"))
+col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
 
 col_labels <- colnames(heatmap_matrix_top10_trunc)
 row_labels <- rownames(heatmap_matrix_top10_trunc)
@@ -379,7 +453,7 @@ heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
 
 # Draw the heatmap
 draw(heatmap_plot_trunc, 
-     column_title= "Top 10 Genes Co-expressed with Ntrk2trunc",
+     column_title= "Top 10 Genes Co-expressed with TrkB.T1",
    column_title_gp=grid::gpar(fontsize=16))
 
 png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
@@ -397,14 +471,13 @@ target_gene <- "Ntrk2FL"
 target_gene_expression_FL <- coexp_matrix[target_gene, ]
 
 # Calculate correlations
-correlations <- apply(coexp_matrix, 1, function(gene_expression) {
-  cor(target_gene_expression_FL, gene_expression, method = "pearson")
-})
+# correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+#   cor(target_gene_expression_FL, gene_expression, method = "pearson")
+# })
 
-# Convert to a data frame for easier handling
 correlation_df_FL <- data.frame(
-  gene = names(correlations),
-  correlation = correlations,
+  gene = rownames(coexp_matrix),
+  correlation = coexp_matrix["Ntrk2FL", ],
   row.names = NULL
 )
 
@@ -474,7 +547,7 @@ draw(heatmap_plot_FL,
 
 png("Ntrk2FL_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
 draw(heatmap_plot_FL,
-     column_title = "Top 10 Genes Co-expressed with Ntrk2FL",
+     column_title = "Top 10 Genes Co-expressed with TrkB.FL",
      column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
 dev.off()  # Close the PNG device
 
@@ -545,27 +618,37 @@ go_plot_trunc_bp <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'EN
                                     ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
 
 
-ggsave("go_plot_trunc_bp.png", plot = go_plot_trunc_bp, dpi = 300)
-ggsave("go_plot_FL_bp.png", plot = go_plot_FL_bp, dpi = 300)
-
-ggsave("go_plot_trunc_mf.png", plot = go_plot_trunc_mf, dpi = 300)
-ggsave("go_plot_FL_mf.png", plot = go_plot_FL_mf, dpi = 300)
-
-ggsave("go_plot_trunc_cc.png", plot = go_plot_trunc_cc, dpi = 300)
-ggsave("go_plot_FL_cc.png", plot = go_plot_FL_cc, dpi = 300)
+# ggsave("go_plot_trunc_bp.png", plot = go_plot_trunc_bp, dpi = 300)
+# ggsave("go_plot_FL_bp.png", plot = go_plot_FL_bp, dpi = 300)
+# 
+# ggsave("go_plot_trunc_mf.png", plot = go_plot_trunc_mf, dpi = 300)
+# ggsave("go_plot_FL_mf.png", plot = go_plot_FL_mf, dpi = 300)
+# 
+# ggsave("go_plot_trunc_cc.png", plot = go_plot_trunc_cc, dpi = 300)
+# ggsave("go_plot_FL_cc.png", plot = go_plot_FL_cc, dpi = 300)
 
 ```
 
 
 
+To compare GO enrichment results between two gene clusters (FL and trunc) across different ontology types (BP, MF, CC), and visualize GO terms uniquely enriched in one cluster but not the other.
+
+compareCluster():
+- Takes a named list of gene vectors (in gene_lists, one for FL and one for trunc).
+
+- Runs enrichGO() for each group.
+
+- Returns combined results in one object (compare_go), making it easy to compare.
 
 ```{r}
 # List of ontologies to loop through
-ontologies <- c("BP", "MF", "CC")
+ontologies <- c("BP", "CC", "MF")
+
+gene_lists <- list(FL= converted_genes_FL$ENTREZID,
+                   trunc = converted_genes_trunc$ENTREZID)
 
 # Function to generate plots for each ontology
 generate_plots_for_ontology <- function(ontology) {
-  
   # Compare GO terms for each cluster (trunc and FL)
   compare_go <- compareCluster(
     geneCluster = gene_lists,
@@ -618,11 +701,12 @@ generate_plots_for_ontology <- function(ontology) {
   slice_head(n = top_n)
 
   
- top_unique_terms <- data.frame(
-  Term = c(fl_top$Description, trunc_top$Description),
-  Cluster = c(rep("FL", nrow(fl_top)), rep("trunc", nrow(trunc_top))),
-  stringsAsFactors = FALSE
+top_unique_terms <- bind_rows(
+  fl_top %>% mutate(Cluster = "FL"),
+  trunc_top %>% mutate(Cluster = "trunc")
 )
+top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+
  
   # If there are no unique terms, stop the function here
   if (nrow(top_unique_terms) == 0) {
@@ -631,17 +715,22 @@ generate_plots_for_ontology <- function(ontology) {
   }
   
   # Plot using ggplot
-  p <- ggplot(top_unique_terms, aes(x = Term, y = Cluster, color = Cluster)) +
-    geom_point(size = 4) +
-    coord_flip() +
-    labs(title = paste("Top Unique GO Terms:", ontology, "- Ntrk2FL vs Ntrk2trunc"),
-         x = "GO Term", y = "Cluster") +
-    scale_color_manual(values = c("blue", "red")) +  
-    theme_minimal() +
-    theme(plot.title = element_text(hjust = 0),  
-          plot.title.position = "plot",          
-          axis.text.x = element_text(angle = 45, hjust = 1),
-          axis.text.y = element_text(size = 10))
+  p <- ggplot(top_unique_terms, aes(x = reorder(Description, p.adjust), y = Cluster)) +
+  geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
+  coord_flip() +
+  labs(
+    title = paste("Top Unique GO Terms:", ontology, "- Ntrk2FL vs Ntrk2trunc"),
+    x = "GO Term", y = "Cluster",
+    size = "-log10(p.adjust)", color = "GeneRatio"
+  ) +
+  scale_color_viridis_c(option = "C", direction = 1) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0),
+    plot.title.position = "plot",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 10)
+  )
   print(p)
   
   ggsave(
@@ -668,7 +757,7 @@ rds_directory_orig <- "/data/gpfs/projects/punim2183/samples_processing/count_ma
 
 # 1. Load with renaming data
 seurat_list_M10 <- read_rds_to_seurat(rds_directory_orig) |>
-  rename_cells_in_seurat_objects()
+  rename_cells_in_combined_seurat_bothects()
 
 # 2. Normalize with SCTransform and merge
 combined_seurat_M10 <- normalize_and_merge(seurat_list_M10) |>
