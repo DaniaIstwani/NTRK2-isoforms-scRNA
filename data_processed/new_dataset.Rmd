@@ -52,6 +52,12 @@ digraph SeuratWorkflow {
 library(Seurat)
 library(dplyr)
 library(ggplot2)
+source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.R")
+
+```
+
+
+```{r}
 
 # 1. Load data and create Seurat object
 new_cm <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm.rds")
@@ -125,7 +131,7 @@ sce_new <- as.SingleCellExperiment(new_seurat, assay = "RNA")
 
 #pred <- SingleR(test = sce, ref = ref, labels = ref$label.main)
 
-#combined_seurat_both$SingleR_labels <- pred$labels
+#new_seurat$SingleR_labels <- pred$labels
 
 #using this instead cause we've already clustered
 cluster.pred <- SingleR(test = sce_new, 
@@ -143,22 +149,235 @@ FeaturePlot(new_seurat, neurons_markers)
 FeaturePlot(new_seurat, astrocytes_markers)
 FeaturePlot(new_seurat, features = "Ntrk2FL")
 FeaturePlot(new_seurat, features = "Ntrk2trunc")
+FeaturePlot(new_seurat, features =  c("Ntrk2trunc", "Slc1a2"))
 
 
 # 8. Save Results
 # saveRDS(new_seurat, "processed_seurat_neurons.rds")
 # write.csv(all_markers, "cluster_markers_all.csv")
 # write.csv(top_markers, "cluster_markers_top.csv")
+new_seurat <-readRDS("processed_seurat_neurons.rds")
+```
+
+##co_exp1
+```{r}
+
+
+# Before running CSCORE, ensure data stays sparse
+library(Matrix)
+new_seurat <- SetAssayData(
+  new_seurat,
+  assay = "RNA",
+  layer = "data",
+  new.data = as(LayerData(new_seurat, layer = "data"), "dgCMatrix")
+)
+
+coexp_results <- run_CSCORE_on_Seurat_v5(
+  new_seurat,
+  assay = "RNA",
+  layer = "data",
+  n_genes = 15000,
+)
+
+# coexp_results <- run_CSCORE_on_Seurat_v5_optimized(
+#   new_seuratect = new_seurat,
+#   assay = "RNA",
+#   layer = "data",
+#   n_genes = 5000,
+# )
+
+
+coexp_matrix <- coexp_results$coexpression_matrix
 
 ```
 
+
 ```{r}
-coexp_results_new <- run_CSCORE_on_Seurat_v5(
-  seurat_object = new_seurat,
-  assay = "SCT",
-  layer = "data",
-  n_genes = 3000  
+target_gene <- "Ntrk2trunc"
+
+target_gene_expression_trunc <- coexp_matrix[target_gene, ]
+
+# Calculate correlations
+# correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+#   cor(target_gene_expression_trunc, gene_expression, method = "pearson")
+# })
+
+correlation_df_trunc <- data.frame(
+  gene = rownames(coexp_matrix),
+  correlation = coexp_matrix["Ntrk2trunc", ],
+  row.names = NULL
 )
 
+# Sort by absolute correlation
+correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
 
+# Filter for significant correlations
+significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.5, ] 
+sig_genes_trunc <- significant_correlations_trunc$gene
+
+
+genes_0.1_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.1, ]
+genes_0.2_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.2, ]
+
+
+# Plot the top 20 correlated genes (barplot)
+top_20_genes_trunc <- head(significant_correlations_trunc, 20)
+top_20_genes_barplot_trunc <- ggplot(top_20_genes_trunc, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+top_20_genes_barplot_trunc
+
+top_20_genes_trunc$gene
+ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, width = 10, height = 8, dpi = 300)
+
+# Extract the top 10 genes
+top10_genes_trunc <- head((significant_correlations_trunc$gene), 11)
+
+# Subset the expression matrix
+heatmap_matrix_top10_trunc <- coexp_matrix[top10_genes_trunc, top10_genes_trunc]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top10_trunc)
+
+# Plot heatmap
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
+
+col_labels <- colnames(heatmap_matrix_top10_trunc)
+row_labels <- rownames(heatmap_matrix_top10_trunc)
+
+# Define styles for column names
+row_font_colors_trunc <- ifelse(row_labels == "Ntrk2trunc", "red", "black")
+col_font_colors_trunc <- ifelse(col_labels == "Ntrk2trunc", "red", "black")
+col_font_face_trunc <- ifelse(col_labels == "Ntrk2trunc", "bold", "plain")
+
+heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
+        name = "Correlation",
+        col = col_fun,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc, col = row_font_colors_trunc),
+        column_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc, col = col_font_colors_trunc),
+        column_names_rot = 45,
+        rect_gp = gpar(col = "white", lwd = 1))
+
+
+# Draw the heatmap
+draw(heatmap_plot_trunc, 
+     column_title= "Top 10 Genes Co-expressed with TrkB.T1",
+   column_title_gp=grid::gpar(fontsize=16))
+
+png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_trunc,
+     column_title = "Top 10 Genes Co-expressed with Ntrk2trunc",
+     column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
+dev.off()  # Close the PNG device
+
+
+
+```
+# Brain dataset
+```{r}
+# 1. Load data and create Seurat object
+saveRDS(new_seurat_brain,"new_seurat_brain.rds" )
+new_seurat_brain <- readRDS("new_seurat_brain.rds")
+
+new_cm_brain <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm_brain.rds")
+new_seurat_brain <- CreateSeuratObject(counts = new_cm_brain$cm, project = "scRNA_project")
+
+# 2. Quality Control
+# Calculate mitochondrial percentage (adjust pattern for your organism)
+new_seurat_brain[["percent.mt"]] <- PercentageFeatureSet(new_seurat_brain, pattern = "^MT-")
+
+# Visualize QC metrics
+qc_plots <- VlnPlot(new_seurat_brain, 
+                   features = c("nCount_RNA", "nFeature_RNA", "percent.mt"),
+                   pt.size = 0.1)
+print(qc_plots)
+
+# Filter cells (adjust thresholds based on your QC plots)
+new_seurat_brain <- subset(new_seurat_brain,
+                    subset = nFeature_RNA > 200 & 
+                            nFeature_RNA < 6000 &
+                            percent.mt < 20)
+
+# 3. Normalization and Feature Selection
+new_seurat_brain <- NormalizeData(new_seurat_brain)
+new_seurat_brain <- FindVariableFeatures(new_seurat_brain, selection.method = "vst", nfeatures = 2000)
+
+# Identify top variable features
+top10 <- head(VariableFeatures(new_seurat_brain), 10)
+var_plot <- VariableFeaturePlot(new_seurat_brain)
+var_plot <- LabelPoints(plot = var_plot, points = top10, repel = TRUE)
+print(var_plot)
+
+# 4. Scaling and Dimensionality Reduction
+new_seurat_brain <- ScaleData(new_seurat_brain, features = rownames(new_seurat_brain))
+new_seurat_brain <- RunPCA(new_seurat_brain, features = VariableFeatures(object = new_seurat_brain))
+
+# Visualize PCA results
+print(DimPlot(new_seurat_brain, reduction = "pca"))
+print(ElbowPlot(new_seurat_brain))
+
+# 5. Clustering
+new_seurat_brain <- FindNeighbors(new_seurat_brain, dims = 1:20) # Adjust based on ElbowPlot
+new_seurat_brain <- FindClusters(new_seurat_brain, resolution = 0.5) # Test 0.4-1.2 range
+new_seurat_brain <- RunUMAP(new_seurat_brain, dims = 1:20)
+
+# Visualize clusters
+cluster_plot <- DimPlot(new_seurat_brain, reduction = "umap", label = TRUE)
+print(cluster_plot)
+
+# 6. Marker Identification
+all_markers <- FindAllMarkers(new_seurat_brain,
+                             only.pos = TRUE,
+                             min.pct = 0.25,
+                             logfc.threshold = 0.25,
+                             test.use = "wilcox") # Default test
+
+# Extract top 5 markers per cluster
+top_markers <- all_markers %>%
+  group_by(cluster) %>%
+  slice_max(n = 5, order_by = avg_log2FC)
+
+# Visualize top markers
+print(FeaturePlot(new_seurat_brain, features = top_markers$gene[1:4]))
+
+
+
+# 7. Specific Gene Visualization
+FeaturePlot(new_seurat_brain, features =  "Ntrk2trunc")
+FeaturePlot(new_seurat_brain, features =  c("Ntrk2trunc", "Slc1a3"))
+
+neurons_markers = c("Map2", "Rbfox3", "Tubb3")
+oligos_markers = c("Mbp", "Olig1", "Olig2")
+astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
+
+markers_feature_plot_new <- FeaturePlot(new_seurat_brain, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
+markers_feature_plot_new
+
+ref <- celldex::MouseRNAseqData()
+
+sce_new <- as.SingleCellExperiment(new_seurat_brain, assay = "RNA")
+
+#pred <- SingleR(test = sce, ref = ref, labels = ref$label.main)
+
+#new_seurat$SingleR_labels <- pred$labels
+
+#using this instead cause we've already clustered
+cluster.pred <- SingleR(test = sce_new, 
+                        ref = ref, labels = ref$label.main,
+                        clusters = new_seurat_brain$seurat_clusters,
+                        assay.type.test = "counts")
+new_seurat_brain$SingleR_cluster_labels <- cluster.pred$labels[new_seurat_brain$seurat_clusters]
+
+DimPlot(new_seurat_brain, group.by = "SingleR_cluster_labels", label = TRUE)
 ```

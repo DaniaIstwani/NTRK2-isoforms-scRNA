@@ -640,15 +640,23 @@ compareCluster():
 
 - Returns combined results in one object (compare_go), making it easy to compare.
 
-```{r}
+```{r, fig.width= 8, fig.height= 6}
 # List of ontologies to loop through
 ontologies <- c("BP", "CC", "MF")
+
+
 
 gene_lists <- list(FL= converted_genes_FL$ENTREZID,
                    trunc = converted_genes_trunc$ENTREZID)
 
 # Function to generate plots for each ontology
 generate_plots_for_ontology <- function(ontology) {
+  ontology_full <- switch(ontology,
+  "BP" = "Biological Process",
+  "CC" = "Cellular Component",
+  "MF" = "Molecular Function",
+  ontology  # default fallback
+)
   # Compare GO terms for each cluster (trunc and FL)
   compare_go <- compareCluster(
     geneCluster = gene_lists,
@@ -702,10 +710,11 @@ generate_plots_for_ontology <- function(ontology) {
 
   
 top_unique_terms <- bind_rows(
-  fl_top %>% mutate(Cluster = "FL"),
-  trunc_top %>% mutate(Cluster = "trunc")
+  fl_top %>% mutate(Cluster = "TrkB.FL"),
+  trunc_top %>% mutate(Cluster = "TrkB.T1")
 )
 top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
 
  
   # If there are no unique terms, stop the function here
@@ -714,27 +723,34 @@ top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), 
     return(NULL)  # Exit if no unique terms
   }
   
+
+
   # Plot using ggplot
-  p <- ggplot(top_unique_terms, aes(x = reorder(Description, p.adjust), y = Cluster)) +
+  p <- ggplot(top_unique_terms, aes(x  = Cluster, y = reorder(Description, p.adjust))) +
   geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
   coord_flip() +
   labs(
-    title = paste("Top Unique GO Terms:", ontology, "- Ntrk2FL vs Ntrk2trunc"),
-    x = "GO Term", y = "Cluster",
+    title = paste("Top Unique GO Terms:", ontology_full, "- TrkB.FL vs TrkB.T1"),
+    x = "Transcript Isoform", y = "Go Term",
     size = "-log10(p.adjust)", color = "GeneRatio"
   ) +
   scale_color_viridis_c(option = "C", direction = 1) +
+  scale_x_discrete(expand = expansion(mult = c(0.2, 0.2))) +
   theme_minimal() +
   theme(
+  
     plot.title = element_text(hjust = 0),
     plot.title.position = "plot",
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 10)
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(t = 10, r = 10, b = 20, l = 15),  # top, right, bottom, left
+    legend.position = "right",
+    legend.box.margin = margin(0, 10, 0, 0)
   )
   print(p)
   
   ggsave(
-  filename = paste0("GO_TopUnique_", ontology, ".png"),
+  filename = paste0("GO_TopUnique_", ontology_full, ".png"),
   plot = p,
   width = 10,
   height = 6,
