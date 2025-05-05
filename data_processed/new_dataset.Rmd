@@ -172,22 +172,15 @@ new_seurat <- SetAssayData(
   new.data = as(LayerData(new_seurat, layer = "data"), "dgCMatrix")
 )
 
-coexp_results <- run_CSCORE_on_Seurat_v5(
+coexp_results_1<- run_CSCORE_on_Seurat_v5(
   new_seurat,
   assay = "RNA",
   layer = "data",
   n_genes = 15000,
 )
 
-# coexp_results <- run_CSCORE_on_Seurat_v5_optimized(
-#   new_seuratect = new_seurat,
-#   assay = "RNA",
-#   layer = "data",
-#   n_genes = 5000,
-# )
 
-
-coexp_matrix <- coexp_results$coexpression_matrix
+coexp_matrix_1 <- coexp_results_1$coexpression_matrix
 
 ```
 
@@ -195,53 +188,53 @@ coexp_matrix <- coexp_results$coexpression_matrix
 ```{r}
 target_gene <- "Ntrk2trunc"
 
-target_gene_expression_trunc <- coexp_matrix[target_gene, ]
+target_gene_expression_trunc_1 <- coexp_matrix_1[target_gene, ]
 
 # Calculate correlations
 # correlations <- apply(coexp_matrix, 1, function(gene_expression) {
 #   cor(target_gene_expression_trunc, gene_expression, method = "pearson")
 # })
 
-correlation_df_trunc <- data.frame(
-  gene = rownames(coexp_matrix),
-  correlation = coexp_matrix["Ntrk2trunc", ],
+correlation_df_trunc_1 <- data.frame(
+  gene = rownames(coexp_matrix_1),
+  correlation = coexp_matrix_1["Ntrk2trunc", ],
   row.names = NULL
 )
 
 # Sort by absolute correlation
-correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
+correlation_df_trunc_1 <- correlation_df_trunc_1[order(-abs(correlation_df_trunc_1$correlation)), ]
 
 # Filter for significant correlations
-significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.5, ] 
-sig_genes_trunc <- significant_correlations_trunc$gene
+significant_correlations_trunc_1 <- correlation_df_trunc_1[abs(correlation_df_trunc_1$correlation) > 0.5, ] 
+sig_genes_trunc_1 <- significant_correlations_trunc_1$gene
 
 
-genes_0.1_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.1, ]
-genes_0.2_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.2, ]
+genes_0.1_corr_trunc_1 <- correlation_df_trunc_1[abs(correlation_df_trunc_1$correlation) > 0.1, ]
+genes_0.2_corr_trunc_1 <- correlation_df_trunc_1[abs(correlation_df_trunc_1$correlation) > 0.2, ]
 
 
 # Plot the top 20 correlated genes (barplot)
-top_20_genes_trunc <- head(significant_correlations_trunc, 20)
-top_20_genes_barplot_trunc <- ggplot(top_20_genes_trunc, aes(x = reorder(gene, correlation), y = correlation)) +
+top_20_genes_trunc_1 <- head(significant_correlations_trunc_1, 21)
+top_20_genes_barplot_trunc_1 <- ggplot(top_20_genes_trunc_1, aes(x = reorder(gene, correlation), y = correlation)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
   labs(title = paste("Top Genes Correlated with", target_gene),
        x = "Gene",
        y = "Correlation") +
   theme_minimal()
-top_20_genes_barplot_trunc
+top_20_genes_barplot_trunc_1
 
-top_20_genes_trunc$gene
-ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, width = 10, height = 8, dpi = 300)
+top_20_genes_trunc_1$gene
+ggsave("top_20_genes_barplot_trunc_1.png", plot = top_20_genes_barplot_trunc_1, width = 10, height = 8, dpi = 300)
 
 # Extract the top 10 genes
-top10_genes_trunc <- head((significant_correlations_trunc$gene), 11)
+top20_genes_trunc_1 <- head((significant_correlations_trunc_1$gene), 21)
 
 # Subset the expression matrix
-heatmap_matrix_top10_trunc <- coexp_matrix[top10_genes_trunc, top10_genes_trunc]
+heatmap_matrix_top20_trunc_1 <- coexp_matrix_1[top20_genes_trunc_1, top20_genes_trunc_1]
 
 # Check the dimensions of the heatmap matrix
-dim(heatmap_matrix_top10_trunc)
+dim(heatmap_matrix_top20_trunc_1)
 
 # Plot heatmap
 
@@ -251,15 +244,15 @@ library(grid)
 
 col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
 
-col_labels <- colnames(heatmap_matrix_top10_trunc)
-row_labels <- rownames(heatmap_matrix_top10_trunc)
+col_labels <- colnames(heatmap_matrix_top20_trunc_1)
+row_labels <- rownames(heatmap_matrix_top20_trunc_1)
 
 # Define styles for column names
 row_font_colors_trunc <- ifelse(row_labels == "Ntrk2trunc", "red", "black")
 col_font_colors_trunc <- ifelse(col_labels == "Ntrk2trunc", "red", "black")
 col_font_face_trunc <- ifelse(col_labels == "Ntrk2trunc", "bold", "plain")
 
-heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
+heatmap_plot_trunc_1 <- Heatmap(heatmap_matrix_top20_trunc_1,
         name = "Correlation",
         col = col_fun,
         cluster_rows = TRUE,
@@ -271,15 +264,274 @@ heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
 
 
 # Draw the heatmap
-draw(heatmap_plot_trunc, 
-     column_title= "Top 10 Genes Co-expressed with TrkB.T1",
+draw(heatmap_plot_trunc_1, 
+     column_title= "Top 20 Genes Co-expressed with TrkB.T1 - E18 Dataset",
    column_title_gp=grid::gpar(fontsize=16))
 
-png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
-draw(heatmap_plot_trunc,
-     column_title = "Top 10 Genes Co-expressed with Ntrk2trunc",
+png("Ntrk2trunc_correlation_heatmap_1.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_trunc_1,
+     column_title = "Top 20 Genes Co-expressed with TrkB.T1",
      column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
 dev.off()  # Close the PNG device
+
+sum(coexp_matrix_1["Ntrk2trunc",]==1)
+#55
+
+```
+
+
+```{r}
+target_gene <- "Ntrk2FL"
+
+target_gene_expression_FL_1 <- coexp_matrix_1[target_gene, ]
+
+# Calculate correlations
+# correlations <- apply(coexp_matrix_1, 1, function(gene_expression) {
+#   cor(target_gene_expression_FL, gene_expression, method = "pearson")
+# })
+
+correlation_df_FL_1 <- data.frame(
+  gene = rownames(coexp_matrix_1),
+  correlation = coexp_matrix_1["Ntrk2FL", ],
+  row.names = NULL
+)
+
+# Sort by absolute correlation
+correlation_df_FL_1 <- correlation_df_FL_1[order(-abs(correlation_df_FL_1$correlation)), ]
+
+# Filter for significant correlations
+significant_correlations_FL_1 <- correlation_df_FL_1[abs(correlation_df_FL_1$correlation) > 0.3, ] 
+sig_genes_FL_1 <- significant_correlations_FL_1$gene
+
+
+genes_0.1_corr_FL <- correlation_df_FL_1[abs(correlation_df_FL_1$correlation) > 0.1, ]
+genes_0.2_corr_FL <- correlation_df_FL_1[abs(correlation_df_FL_1$correlation) > 0.2, ]
+
+# Plot the top 20 correlated genes
+top_genes <- head(significant_correlations_FL_1, 20)
+ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+
+top_genes$gene
+
+
+# Extract the top 10 genes
+top20_genes_FL <- head((significant_correlations_FL_1$gene), 21)
+
+# Subset the expression matrix
+heatmap_matrix_top20_FL <- coexp_matrix_1[top20_genes_FL, top20_genes_FL]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top20_FL)
+
+# Plot heatmap
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+col_labels <- colnames(heatmap_matrix_top20_FL)
+row_labels <- rownames(heatmap_matrix_top20_FL)
+
+# Define styles for column names
+row_font_colors_FL <- ifelse(row_labels == "Ntrk2FL", "red", "black")
+col_font_colors_FL <- ifelse(col_labels == "Ntrk2FL", "red", "black")
+col_font_face_FL <- ifelse(col_labels == "Ntrk2FL", "bold", "plain")
+
+
+heatmap_plot_FL <- Heatmap(heatmap_matrix_top20_FL,
+        name = "Correlation",
+        col = col_fun,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 10, fontface = col_font_face_FL, col = row_font_colors_FL),
+        column_names_gp = gpar(fontsize = 10, fontface = col_font_face_FL, col = col_font_colors_FL),
+        column_names_rot = 45,
+        rect_gp = gpar(col = "white", lwd = 1))
+
+
+# Draw the heatmap
+draw(heatmap_plot_FL, 
+     column_title= "Top 20 Genes Co-expressed with TrkB.FL",
+   column_title_gp=grid::gpar(fontsize=16))
+
+png("Ntrk2FL_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_FL,
+     column_title = "Top 10 Genes Co-expressed with TrkB.FL",
+     column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
+dev.off()  # Close the PNG device
+sum(coexp_matrix_1["Ntrk2FL",]==1)
+#17
+
+```
+
+```{r}
+brain_gene_list_FL <- genes_0.2_corr_FL$gene #correlated genes with Ntrk2 truncated isoform with r >0.2
+brain_gene_list_trunc <- genes_0.2_corr_trunc$gene # correlated genes with full-length isoform with r > 0.2
+
+#convert SYMBOL to ENTERZID 
+converted_genes_trunc <- bitr(brain_gene_list_trunc, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
+brain_gene_list_trunc <- converted_genes_trunc$ENTREZID
+
+converted_genes_FL <-bitr(brain_gene_list_FL, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
+brain_gene_list_FL <- converted_genes_FL$ENTREZID
+
+
+# Run GO enrichment with converted gene IDs
+go_plot_FL_cc <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
+                                 ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+
+go_plot_trunc_cc <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
+                                    ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                    ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+
+go_plot_FL_mf <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
+                                 ontology = 'MF', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+
+go_plot_trunc_mf <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
+                                    ontology = 'MF', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                    ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+
+go_plot_FL_bp <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
+                                 ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+
+go_plot_trunc_bp <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
+                                    ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                    ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+
+
+
+
+```
+
+```{r}
+ontologies <- c("BP", "CC", "MF")
+
+
+
+gene_lists <- list(FL= converted_genes_FL$ENTREZID,
+                   trunc = converted_genes_trunc$ENTREZID)
+
+# Function to generate plots for each ontology
+generate_plots_for_ontology <- function(ontology) {
+  ontology_full <- switch(ontology,
+  "BP" = "Biological Process",
+  "CC" = "Cellular Component",
+  "MF" = "Molecular Function",
+  ontology  # default fallback
+)
+  # Compare GO terms for each cluster (trunc and FL)
+  compare_go <- compareCluster(
+    geneCluster = gene_lists,
+    fun = "enrichGO",
+    OrgDb = org.Mm.eg.db,
+    keyType = "ENTREZID",
+    ont = ontology,
+    pvalueCutoff = 0.05,
+    pAdjustMethod = "BH",
+    qvalueCutoff = 0.2,
+    readable = TRUE
+  )
+  
+  go_df <- compare_go@compareClusterResult
+  print(paste("Number of GO terms for ontology", ontology, ":", nrow(go_df)))  # Debugging
+  
+  # Filter significant results
+  filtered_go <- go_df %>%
+    filter(p.adjust < 0.05) %>%
+    dplyr::select(Description, Cluster, p.adjust, GeneRatio)
+  
+  print(paste("Number of significant GO terms for ontology", ontology, ":", nrow(filtered_go)))  # Debugging
+  
+  # If there are no significant terms, stop the function here
+  if (nrow(filtered_go) == 0) {
+    print(paste("No significant GO terms for ontology", ontology))
+    return(NULL)  # Exit if no significant results
+  }
+  
+  # Separate by Cluster (FL vs trunc) and examine the differences
+  fl_terms <- filtered_go %>% filter(Cluster == "FL")
+  trunc_terms <- filtered_go %>% filter(Cluster == "trunc")
+  
+  # Identify the GO terms that are different (unique for each isoform)
+  fl_unique <- setdiff(fl_terms$Description, trunc_terms$Description)
+  trunc_unique <- setdiff(trunc_terms$Description, fl_terms$Description)
+  
+  # Select top N unique terms by significance (lowest p.adjust)
+
+  top_n <- 15
+
+  fl_top <- fl_terms %>%
+  filter(Description %in% fl_unique) %>%
+  arrange(p.adjust) %>%
+  slice_head(n = top_n)
+
+  trunc_top <- trunc_terms %>%
+  filter(Description %in% trunc_unique) %>%
+  arrange(p.adjust) %>%
+  slice_head(n = top_n)
+
+  
+top_unique_terms <- bind_rows(
+  fl_top %>% mutate(Cluster = "TrkB.FL"),
+  trunc_top %>% mutate(Cluster = "TrkB.T1")
+)
+top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+#top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
+
+ 
+  # If there are no unique terms, stop the function here
+  if (nrow(top_unique_terms) == 0) {
+    print(paste("No unique GO terms for ontology", ontology))
+    return(NULL)  # Exit if no unique terms
+  }
+  
+
+
+  # Plot using ggplot
+  p <- ggplot(top_unique_terms, aes(x  = Cluster, y = reorder(Description, p.adjust))) +
+  geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
+  coord_flip() +
+  labs(
+    title = paste("Top Unique GO Terms:", ontology_full, "- TrkB.FL vs TrkB.T1"),
+    x = "Transcript Isoform", y = "Go Term",
+    size = "-log10(p.adjust)", color = "GeneRatio"
+  ) +
+  scale_color_viridis_c(option = "C", direction = 1) +
+  scale_x_discrete(expand = expansion(mult = c(0.4, 0.4))) +
+  theme_minimal() +
+  theme(
+  
+    plot.title = element_text(hjust = 0),
+    plot.title.position = "plot",
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(t = 10, r = 10, b = 20, l = 15),  # top, right, bottom, left
+    legend.position = "right",
+    legend.box.margin = margin(0, 10, 0, 0)
+  )
+  print(p)
+}
+#   ggsave(
+#   filename = paste0("GO_TopUnique_", ontology_full, ".png"),
+#   plot = p,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+# }
+# Generate plots for each ontology
+for (ontology in ontologies) {
+  generate_plots_for_ontology(ontology)
+}
 
 
 
@@ -287,7 +539,7 @@ dev.off()  # Close the PNG device
 # Brain dataset
 ```{r}
 # 1. Load data and create Seurat object
-saveRDS(new_seurat_brain,"new_seurat_brain.rds" )
+#saveRDS(new_seurat_brain,"new_seurat_brain.rds" )
 new_seurat_brain <- readRDS("new_seurat_brain.rds")
 
 new_cm_brain <- readRDS("/data/gpfs/projects/punim2183/samples_processing/new_cm_brain.rds")
@@ -353,16 +605,19 @@ print(FeaturePlot(new_seurat_brain, features = top_markers$gene[1:4]))
 
 
 
-# 7. Specific Gene Visualization
-FeaturePlot(new_seurat_brain, features =  "Ntrk2trunc")
-FeaturePlot(new_seurat_brain, features =  c("Ntrk2trunc", "Slc1a3"))
+feature_plots <- FeaturePlot(new_seurat_brain, features = c("Ntrk2trunc", "Ntrk2FL"), raster = FALSE)
+feature_plots[[1]] <- feature_plots[[1]] + labs(title = "TrkB.T1")
+feature_plots[[2]] <- feature_plots[[2]] + labs(title = "TrkB.FL")
+feature_plots
+ggsave("isoforms_feature_plot_new.png", plot = feature_plots, width = 10, height = 8, dpi = 300)
 
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
-oligos_markers = c("Mbp", "Olig1", "Olig2")
+#oligos_markers = c("Mbp", "Olig1", "Olig2")
 astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
 
-markers_feature_plot_new <- FeaturePlot(new_seurat_brain, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
+markers_feature_plot_new <- FeaturePlot(new_seurat_brain, c(neurons_markers, astrocytes_markers), raster = FALSE)
 markers_feature_plot_new
+ggsave("markers_feature_plot_new.png", plot = markers_feature_plot_new, width = 10, height = 8, dpi = 300)
 
 ref <- celldex::MouseRNAseqData()
 
@@ -380,4 +635,377 @@ cluster.pred <- SingleR(test = sce_new,
 new_seurat_brain$SingleR_cluster_labels <- cluster.pred$labels[new_seurat_brain$seurat_clusters]
 
 DimPlot(new_seurat_brain, group.by = "SingleR_cluster_labels", label = TRUE)
+```
+
+```{r}
+# Before running CSCORE, ensure data stays sparse
+library(Matrix)
+new_seurat <- SetAssayData(
+  new_seurat_brain,
+  assay = "RNA",
+  layer = "data",
+  new.data = as(LayerData(new_seurat_brain, layer = "data"), "dgCMatrix")
+)
+
+coexp_results <- run_CSCORE_on_Seurat_v5(
+  new_seurat_brain,
+  assay = "RNA",
+  layer = "data",
+  n_genes = 15000,
+)
+
+
+
+coexp_matrix <- coexp_results$coexpression_matrix
+
+```
+
+
+```{r}
+target_gene <- "Ntrk2trunc"
+
+target_gene_expression_trunc <- coexp_matrix[target_gene, ]
+
+
+correlation_df_trunc <- data.frame(
+  gene = rownames(coexp_matrix),
+  correlation = coexp_matrix["Ntrk2trunc", ],
+  row.names = NULL
+)
+
+# Sort by absolute correlation
+correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
+
+# Filter for significant correlations
+significant_correlations_trunc <- rbind(
+  correlation_df_trunc[correlation_df_trunc$gene == "Ntrk2trunc", ],
+  correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.8 & correlation_df_trunc$gene != "Ntrk2trunc", ]
+)
+sig_genes_trunc <- significant_correlations_trunc$gene
+
+
+genes_0.1_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.1, ]
+genes_0.2_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.2, ]
+
+
+# Plot the top 20 correlated genes (barplot)
+top_20_genes_trunc <- head(significant_correlations_trunc, 21)
+top_20_genes_barplot_trunc <- ggplot(top_20_genes_trunc, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+top_20_genes_barplot_trunc
+
+top_20_genes_trunc$gene
+ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, width = 10, height = 8, dpi = 300)
+
+# Extract the top 10 genes
+top20_genes_trunc <- head((significant_correlations_trunc$gene), 21)
+
+# Subset the expression matrix
+heatmap_matrix_top20_trunc <- coexp_matrix[top20_genes_trunc, top20_genes_trunc]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top20_trunc)
+
+# Plot heatmap
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
+
+col_labels <- colnames(heatmap_matrix_top20_trunc)
+row_labels <- rownames(heatmap_matrix_top20_trunc)
+
+# Define styles for column names
+row_font_colors_trunc <- ifelse(row_labels == "Ntrk2trunc", "red", "black")
+col_font_colors_trunc <- ifelse(col_labels == "Ntrk2trunc", "red", "black")
+col_font_face_trunc <- ifelse(col_labels == "Ntrk2trunc", "bold", "plain")
+
+heatmap_plot_trunc <- Heatmap(heatmap_matrix_top20_trunc,
+        name = "Correlation",
+        col = col_fun,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc, col = row_font_colors_trunc),
+        column_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc, col = col_font_colors_trunc),
+        column_names_rot = 45,
+        rect_gp = gpar(col = "white", lwd = 1))
+
+
+# Draw the heatmap
+draw(heatmap_plot_trunc, 
+     column_title= "Top 20 Genes Co-expressed with TrkB.T1",
+   column_title_gp=grid::gpar(fontsize=16))
+
+png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_trunc,
+     column_title = "Top 20 Genes Co-expressed with TrkB.T1",
+     column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
+dev.off()  # Close the PNG device
+
+
+sum(significant_correlations_trunc$correlation == 1)
+
+#70 genes have correlation = 1
+
+```
+
+```{r}
+
+target_gene <- "Ntrk2FL"
+
+target_gene_expression_FL <- coexp_matrix[target_gene, ]
+
+# Calculate correlations
+# correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+#   cor(target_gene_expression_FL, gene_expression, method = "pearson")
+# })
+
+correlation_df_FL <- data.frame(
+  gene = rownames(coexp_matrix),
+  correlation = coexp_matrix["Ntrk2FL", ],
+  row.names = NULL
+)
+
+# Sort by absolute correlation
+correlation_df_FL <- correlation_df_FL[order(-abs(correlation_df_FL$correlation)), ]
+
+# Filter for significant correlations
+significant_correlations_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.8, ] 
+sig_genes_FL <- significant_correlations_FL$gene
+
+
+genes_0.1_corr_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.1, ]
+genes_0.2_corr_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.2, ]
+
+# Plot the top 20 correlated genes
+top_genes <- head(significant_correlations_FL, 21)
+ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+
+top_genes$gene
+
+
+# Extract the top 10 genes
+top20_genes_FL <- head((significant_correlations_FL$gene), 21)
+
+# Subset the expression matrix
+heatmap_matrix_top20_FL <- coexp_matrix[top20_genes_FL, top20_genes_FL]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top20_FL)
+
+# Plot heatmap
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+col_labels <- colnames(heatmap_matrix_top20_FL)
+row_labels <- rownames(heatmap_matrix_top20_FL)
+
+# Define styles for column names
+row_font_colors_FL <- ifelse(row_labels == "Ntrk2FL", "red", "black")
+col_font_colors_FL <- ifelse(col_labels == "Ntrk2FL", "red", "black")
+col_font_face_FL <- ifelse(col_labels == "Ntrk2FL", "bold", "plain")
+
+
+heatmap_plot_FL <- Heatmap(heatmap_matrix_top20_FL,
+        name = "Correlation",
+        col = col_fun,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 10, fontface = col_font_face_FL, col = row_font_colors_FL),
+        column_names_gp = gpar(fontsize = 10, fontface = col_font_face_FL, col = col_font_colors_FL),
+        column_names_rot = 45,
+        rect_gp = gpar(col = "white", lwd = 1))
+
+
+# Draw the heatmap
+draw(heatmap_plot_FL, 
+     column_title= "Top 20 Genes Co-expressed with TrkB.FL",
+   column_title_gp=grid::gpar(fontsize=16))
+
+png("Ntrk2FL_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_FL,
+     column_title = "Top 10 Genes Co-expressed with TrkB.FL",
+     column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
+dev.off()  # Close the PNG device
+
+sum(significant_correlations_FL$correlation == 1) 
+#47 genes with r =1
+
+```
+
+```{r}
+brain_gene_list_FL <- genes_0.2_corr_FL$gene #correlated genes with Ntrk2 truncated isoform with r >0.2
+brain_gene_list_trunc <- genes_0.2_corr_trunc$gene # correlated genes with full-length isoform with r > 0.2
+
+#convert SYMBOL to ENTERZID 
+converted_genes_trunc <- bitr(brain_gene_list_trunc, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
+brain_gene_list_trunc <- converted_genes_trunc$ENTREZID
+
+converted_genes_FL <-bitr(brain_gene_list_FL, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Mm.eg.db)
+brain_gene_list_FL <- converted_genes_FL$ENTREZID
+
+
+# Run GO enrichment with converted gene IDs
+go_plot_FL_cc <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
+                                 ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+
+go_plot_trunc_cc <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
+                                    ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                    ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+
+go_plot_FL_mf <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
+                                 ontology = 'MF', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+
+go_plot_trunc_mf <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
+                                    ontology = 'MF', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                    ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+
+go_plot_FL_bp <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
+                                 ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+
+go_plot_trunc_bp <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
+                                    ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
+                                    ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+go_plot_trunc_bp
+go_plot_FL_bp
+```
+
+
+```{r}
+ontologies <- c("BP", "CC", "MF")
+
+
+
+gene_lists <- list(FL= converted_genes_FL$ENTREZID,
+                   trunc = converted_genes_trunc$ENTREZID)
+
+# Function to generate plots for each ontology
+generate_plots_for_ontology <- function(ontology) {
+  ontology_full <- switch(ontology,
+  "BP" = "Biological Process",
+  "CC" = "Cellular Component",
+  "MF" = "Molecular Function",
+  ontology  # default fallback
+)
+  # Compare GO terms for each cluster (trunc and FL)
+  compare_go <- compareCluster(
+    geneCluster = gene_lists,
+    fun = "enrichGO",
+    OrgDb = org.Mm.eg.db,
+    keyType = "ENTREZID",
+    ont = ontology,
+    pvalueCutoff = 0.05,
+    pAdjustMethod = "BH",
+    qvalueCutoff = 0.2,
+    readable = TRUE
+  )
+  
+  go_df <- compare_go@compareClusterResult
+  print(paste("Number of GO terms for ontology", ontology, ":", nrow(go_df)))  # Debugging
+  
+  # Filter significant results
+  filtered_go <- go_df %>%
+    filter(p.adjust < 0.05) %>%
+    dplyr::select(Description, Cluster, p.adjust, GeneRatio)
+  
+  print(paste("Number of significant GO terms for ontology", ontology, ":", nrow(filtered_go)))  # Debugging
+  
+  # If there are no significant terms, stop the function here
+  if (nrow(filtered_go) == 0) {
+    print(paste("No significant GO terms for ontology", ontology))
+    return(NULL)  # Exit if no significant results
+  }
+  
+  # Separate by Cluster (FL vs trunc) and examine the differences
+  fl_terms <- filtered_go %>% filter(Cluster == "FL")
+  trunc_terms <- filtered_go %>% filter(Cluster == "trunc")
+  
+  # Identify the GO terms that are different (unique for each isoform)
+  fl_unique <- setdiff(fl_terms$Description, trunc_terms$Description)
+  trunc_unique <- setdiff(trunc_terms$Description, fl_terms$Description)
+  
+  # Select top N unique terms by significance (lowest p.adjust)
+
+  top_n <- 15
+
+  fl_top <- fl_terms %>%
+  filter(Description %in% fl_unique) %>%
+  arrange(p.adjust) %>%
+  slice_head(n = top_n)
+
+  trunc_top <- trunc_terms %>%
+  filter(Description %in% trunc_unique) %>%
+  arrange(p.adjust) %>%
+  slice_head(n = top_n)
+
+  
+top_unique_terms <- bind_rows(
+  fl_top %>% mutate(Cluster = "TrkB.FL"),
+  trunc_top %>% mutate(Cluster = "TrkB.T1")
+)
+top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+#top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
+
+ 
+  # If there are no unique terms, stop the function here
+  if (nrow(top_unique_terms) == 0) {
+    print(paste("No unique GO terms for ontology", ontology))
+    return(NULL)  # Exit if no unique terms
+  }
+  
+
+
+  # Plot using ggplot
+  p <- ggplot(top_unique_terms, aes(x = reorder(Description, p.adjust), y = Cluster )) +
+  geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
+  coord_flip() +
+  labs(
+    title = paste("Top Unique GO Terms:", ontology_full, "- TrkB.FL vs TrkB.T1"),
+    x = "Go Term", y = "Transcript Isoform",
+    size = "-log10(p.adjust)", color = "GeneRatio"
+  ) +
+  scale_color_viridis_c(option = "C", direction = 1) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.y = element_text(size = 9),  # Reduce font size for y-axis labels
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    plot.margin = margin(t = 20, r = 20, b = 20, l = 50),  # Increase left margin
+    legend.position = "right"
+  )
+print(p)
+}
+#   ggsave(
+#   filename = paste0("GO_TopUnique_", ontology_full, ".png"),
+#   plot = p,
+#   width = 10,
+#   height = 6,
+#   dpi = 300
+# )
+# }
+# Generate plots for each ontology
+for (ontology in ontologies) {
+  generate_plots_for_ontology(ontology)
+}
+
+
+
 ```
