@@ -25,6 +25,7 @@ library(clusterProfiler)
 library(org.Mm.eg.db)
 library(enrichplot)
 library(glmGamPoi)
+library(stringr)
 
 library(SingleR)
 library(celldex)
@@ -145,7 +146,7 @@ print("Workflow completed successfully! The combined Seurat object has been save
 rds_directory_both <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/both/cm_both/"
 
 # 1. Load with renaming data
-seurat_list_both <- read_rds_to_seurat(rds_directory_both) |> rename_cells_in_combined_seurat_bothects()
+seurat_list_both <- read_rds_to_seurat(rds_directory_both) |> rename_cells_in_seurat_objects()
 
 seurat_list_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/seurat_list_both.rds")
 # 2. Normalize and merge
@@ -238,6 +239,32 @@ cell_types_dim
 
 saveRDS(combined_seurat_both, "combined_seurat_both.rds")
 ggsave("cell_types_dim.png", plot = cell_types_dim, width = 10, height = 8, dpi = 300)
+
+VlnPlot(combined_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), group.by = "SingleR_cluster_labels", pt.size = FALSE)
+
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+
+vln_FL <- VlnPlot(
+  combined_seurat_both,
+  features = "Ntrk2FL",
+  group.by = "SingleR_cluster_labels",
+  pt.size = FALSE
+) + ggtitle("TrkB.FL")
+
+vln_T1 <- VlnPlot(
+  combined_seurat_both,
+  features = "Ntrk2trunc",
+  group.by = "SingleR_cluster_labels",
+  pt.size = FALSE
+) + ggtitle("TrkB.T1")
+
+vln_FL 
+vln_T1
+ggsave("vln_FL.png", plot = vln_FL, width = 10, height = 8, dpi = 300)
+ggsave("vln_T1.png", plot = vln_T1, width = 10, height = 8, dpi = 300)
+
 
 ```
 # Assign Clusters to cell types of interest manually
@@ -353,7 +380,7 @@ coexp_results <- run_CSCORE_on_Seurat_v5(
   combined_seurat_both,
   assay = "RNA",
   layer = "data",
-  n_genes = 1500,
+  n_genes = 1500, #top 1500 with meaningful expression
 )
 
 # coexp_results <- run_CSCORE_on_Seurat_v5_optimized(
@@ -393,7 +420,7 @@ correlation_df_trunc <- data.frame(
 correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
 
 # Filter for significant correlations
-significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.5, ] 
+significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.4, ] 
 sig_genes_trunc <- significant_correlations_trunc$gene
 
 
@@ -416,13 +443,13 @@ top_20_genes_trunc$gene
 ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, width = 10, height = 8, dpi = 300)
 
 # Extract the top 10 genes
-top10_genes_trunc <- head((significant_correlations_trunc$gene), 11)
+top20_genes_trunc <- head((significant_correlations_trunc$gene), 21)
 
 # Subset the expression matrix
-heatmap_matrix_top10_trunc <- coexp_matrix[top10_genes_trunc, top10_genes_trunc]
+heatmap_matrix_top20_trunc <- coexp_matrix[top20_genes_trunc, top20_genes_trunc]
 
 # Check the dimensions of the heatmap matrix
-dim(heatmap_matrix_top10_trunc)
+dim(heatmap_matrix_top20_trunc)
 
 # Plot heatmap
 
@@ -432,15 +459,15 @@ library(grid)
 
 col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
 
-col_labels <- colnames(heatmap_matrix_top10_trunc)
-row_labels <- rownames(heatmap_matrix_top10_trunc)
+col_labels <- colnames(heatmap_matrix_top20_trunc)
+row_labels <- rownames(heatmap_matrix_top20_trunc)
 
 # Define styles for column names
 row_font_colors_trunc <- ifelse(row_labels == "Ntrk2trunc", "red", "black")
 col_font_colors_trunc <- ifelse(col_labels == "Ntrk2trunc", "red", "black")
 col_font_face_trunc <- ifelse(col_labels == "Ntrk2trunc", "bold", "plain")
 
-heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
+heatmap_plot_trunc <- Heatmap(heatmap_matrix_top20_trunc,
         name = "Correlation",
         col = col_fun,
         cluster_rows = TRUE,
@@ -453,12 +480,12 @@ heatmap_plot_trunc <- Heatmap(heatmap_matrix_top10_trunc,
 
 # Draw the heatmap
 draw(heatmap_plot_trunc, 
-     column_title= "Top 10 Genes Co-expressed with TrkB.T1",
+     column_title= "Top 20 Genes Co-expressed with TrkB.T1",
    column_title_gp=grid::gpar(fontsize=16))
 
 png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
 draw(heatmap_plot_trunc,
-     column_title = "Top 10 Genes Co-expressed with Ntrk2trunc",
+     column_title = "Top 20 Genes Co-expressed with TrkB.T1",
      column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
 dev.off()  # Close the PNG device
 
@@ -485,7 +512,7 @@ correlation_df_FL <- data.frame(
 correlation_df_FL <- correlation_df_FL[order(-abs(correlation_df_FL$correlation)), ]
 
 # Filter for significant correlations
-significant_correlations_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.3, ] 
+significant_correlations_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.4, ] 
 sig_genes_FL <- significant_correlations_FL$gene
 
 
@@ -506,13 +533,13 @@ top_genes$gene
 
 
 # Extract the top 10 genes
-top10_genes_FL <- head((significant_correlations_FL$gene), 11)
+top20_genes_FL <- head((significant_correlations_FL$gene), 21)
 
 # Subset the expression matrix
-heatmap_matrix_top10_FL <- coexp_matrix[top10_genes_FL, top10_genes_FL]
+heatmap_matrix_top20_FL <- coexp_matrix[top20_genes_FL, top20_genes_FL]
 
 # Check the dimensions of the heatmap matrix
-dim(heatmap_matrix_top10_FL)
+dim(heatmap_matrix_top20_FL)
 
 # Plot heatmap
 
@@ -520,8 +547,8 @@ library(ComplexHeatmap)
 library(circlize)
 library(grid)
 
-col_labels <- colnames(heatmap_matrix_top10_FL)
-row_labels <- rownames(heatmap_matrix_top10_FL)
+col_labels <- colnames(heatmap_matrix_top20_FL)
+row_labels <- rownames(heatmap_matrix_top20_FL)
 
 # Define styles for column names
 row_font_colors_FL <- ifelse(row_labels == "Ntrk2FL", "red", "black")
@@ -529,7 +556,7 @@ col_font_colors_FL <- ifelse(col_labels == "Ntrk2FL", "red", "black")
 col_font_face_FL <- ifelse(col_labels == "Ntrk2FL", "bold", "plain")
 
 
-heatmap_plot_FL <- Heatmap(heatmap_matrix_top10_FL,
+heatmap_plot_FL <- Heatmap(heatmap_matrix_top20_FL,
         name = "Correlation",
         col = col_fun,
         cluster_rows = TRUE,
@@ -542,7 +569,7 @@ heatmap_plot_FL <- Heatmap(heatmap_matrix_top10_FL,
 
 # Draw the heatmap
 draw(heatmap_plot_FL, 
-     column_title= "Top 10 Genes Co-expressed with Ntrk2FL",
+     column_title= "Top 20 Genes Co-expressed with TrkB.FL",
    column_title_gp=grid::gpar(fontsize=16))
 
 png("Ntrk2FL_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
@@ -595,7 +622,7 @@ brain_gene_list_FL <- converted_genes_FL$ENTREZID
 # Run GO enrichment with converted gene IDs
 go_plot_FL_cc <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID', 
                                  ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
-                                 ggtitle("Gene Ontology Enrichment for Ntrk2FL"))
+                                 ggtitle("Gene Ontology Enrichment for TrkB.FL"))
 
 go_plot_trunc_cc <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
                                     ontology = 'CC', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
@@ -643,8 +670,6 @@ compareCluster():
 ```{r, fig.width= 8, fig.height= 6}
 # List of ontologies to loop through
 ontologies <- c("BP", "CC", "MF")
-
-
 
 gene_lists <- list(FL= converted_genes_FL$ENTREZID,
                    trunc = converted_genes_trunc$ENTREZID)
@@ -716,7 +741,9 @@ top_unique_terms <- bind_rows(
 top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
 top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
 
- 
+ top_unique_terms$ShortDescription <- sapply(strsplit(top_unique_terms$Description, " "), function(words) {
+  paste(head(words, 3), collapse = " ")
+})
   # If there are no unique terms, stop the function here
   if (nrow(top_unique_terms) == 0) {
     print(paste("No unique GO terms for ontology", ontology))
@@ -726,7 +753,7 @@ top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 4
 
 
   # Plot using ggplot
-  p <- ggplot(top_unique_terms, aes(x  = Cluster, y = reorder(Description, p.adjust))) +
+  p <- ggplot(top_unique_terms, aes(x  = Cluster , y = reorder(ShortDescription, p.adjust))) +
   geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
   coord_flip() +
   labs(
@@ -735,7 +762,7 @@ top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 4
     size = "-log10(p.adjust)", color = "GeneRatio"
   ) +
   scale_color_viridis_c(option = "C", direction = 1) +
-  scale_x_discrete(expand = expansion(mult = c(0.2, 0.2))) +
+  scale_x_discrete(expand = expansion(mult = c(0.4, 0.4))) +
   theme_minimal() +
   theme(
   

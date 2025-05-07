@@ -189,7 +189,7 @@ run_CSCORE_on_Seurat_v5 <- function(
   #adjusted_p_values: The BH-adjusted p-values.
   #selected_genes: The genes used for the analysis.
     seurat_object, 
-    n_genes = 3000,          
+    n_genes = 5000,          
     assay = "RNA", 
     layer = "data", 
     cscore_genes = NULL
@@ -353,10 +353,44 @@ plot_GO_enrichment <- function(gene_name_vector, gene_id_type = 'ENTREZID', onto
                          ont = ontology, 
                          pAdjustMethod = "BH",
                          pvalueCutoff = pval_cutoff)
+  df <- as.data.frame(enrich_obj)
   
-  enrichplot::dotplot(enrich_obj, 
-                      label_format = 100)
+  if (nrow(df) == 0){
+    message("No enriched terms found.")
+    return(NULL)
+  }
+  df$GeneRatio <- sapply(strsplit(df$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+  
+  df <- df %>%
+    mutate(
+      log10padj = -log10(p.adjust),
+      ShortDescription = sapply(strsplit(Description, " "), function(words) {
+        paste(head(words, 4), collapse = " ")
+      }),
+      ShortDescription = str_wrap(ShortDescription, width = 40)
+    )
+
+ 
+    # Plot using ggplot
+  p <- ggplot(df, aes(x = log10padj, y = reorder(ShortDescription, log10padj))) +
+    geom_point(aes(size = Count, color = GeneRatio)) +
+    scale_color_viridis_c(option = "C", direction = 1) +
+    labs(
+      title = paste("GO Enrichment -", ontology),
+      x = "-log10(p.adjust)",
+      y = "GO Term",
+      size = "Gene Count",
+      color = "Gene Ratio"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.y = element_text(size = 10),
+      plot.title = element_text(hjust = 0)
+    )
+  
+  print(p)
 }
+
 
 
 

@@ -1,0 +1,117 @@
+```{r}
+library(Seurat)
+library(cowplot)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(DT)
+library(tidyr)
+library(patchwork)
+library(harmony)
+library(CSCORE)
+library(WGCNA)
+library(pheatmap)
+library(corrplot)
+library(rtracklayer)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(enrichplot)
+library(glmGamPoi)
+library(stringr)
+
+library(SingleR)
+library(celldex)
+library(Seurat)
+library(SingleCellExperiment)
+
+
+source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.R")
+#save.image(file = "dropEst_output.RData")
+#load("dropEst_output.RData")
+
+knitr::opts_chunk$set(eval = FALSE)
+ # 
+ # knitr::knit("dropEst_output.Rmd", output = "dropEst_output_analysis.md")
+
+ #rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
+```
+
+
+```{r, echo=FALSE}
+# Define the directory containing RDS files
+rds_directory_both3 <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/cm_Ntrk3"
+
+# 1. Load with renaming data
+seurat_list_both3 <- read_rds_to_seurat(rds_directory_both3) |> rename_cells_in_seurat_objects()
+
+seurat_list_both3 <- readRDS("/data/gpfs/projects/punim2183/data_processed/seurat_list_both3.rds")
+# 2. Normalize and merge
+combined_seurat_both33 <- normalize_and_merge(seurat_list_both3)
+
+combined_seurat_both33 <- update_orig_ident(combined_seurat_both33)
+
+# 3. Process with Harmony integration
+combined_seurat_both33 <- process_seurat(combined_seurat_both33)
+combined_seurat_both33 <- run_harmony(combined_seurat_both33, group.by.vars = "orig.ident", npcs = 20)
+
+# 4. Save the processed object
+saveRDS(combined_seurat_both33, "combined_seurat_both33.rds")
+
+# Print a success message
+print("Workflow completed successfully! The combined Seurat object has been saved.")
+
+
+neurons_markers = c("Map2", "Rbfox3", "Tubb3")
+oligos_markers = c("Mbp", "Olig1", "Olig2")
+astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
+
+count_expressing_cells <- function(markers, combined_seurat_both33) {
+  expression_data <- FetchData(combined_seurat_both33, vars = markers)
+  num_cells <- sum(rowSums(expression_data > 0) > 0)
+  return(num_cells)
+}
+
+markers_feature_plot <- FeaturePlot(combined_seurat_both33, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
+markers_feature_plot
+FeaturePlot(combined_seurat_both33, features = c("Ntrk3FL", "Ntrk3trunc"))
+```
+
+```{r}
+combined_seurat_both3 <- JoinLayers(combined_seurat_both3, assay = "RNA")
+
+ref <- celldex::MouseRNAseqData()
+
+sce <- as.SingleCellExperiment(combined_seurat_both3, assay = "RNA")
+
+#pred <- SingleR(test = sce, ref = ref, labels = ref$label.main)
+
+#combined_seurat_both3$SingleR_labels <- pred$labels
+
+#using this instead cause we've already clustered
+cluster.pred <- SingleR(test = sce, ref = ref, labels = ref$label.main, clusters = combined_seurat_both3$seurat_clusters)
+combined_seurat_both3$SingleR_cluster_labels <- cluster.pred$labels[combined_seurat_both3$seurat_clusters]
+
+cell_types_dim <- DimPlot(combined_seurat_both3, group.by = "SingleR_cluster_labels", label = TRUE) +labs(title = "Cell Type Clusters")
+cell_types_dim
+
+VlnPlot(combined_seurat_both3, features = c("Ntrk3FL", "Ntrk3trunc"), group.by = "SingleR_cluster_labels", pt.size = FALSE)
+
+expr_values_trunc <- GetAssayData(combined_seurat_both3, slot = "data")["Ntrk3trunc", ]
+expr_values_FL <- GetAssayData(combined_seurat_both3, slot = "data")["Ntrk3FL", ]
+
+table(expr_values_trunc > 0)
+table(expr_values_FL > 0)
+```
+
+
+
+Check the representation of the transcript isoforms as genes in the metadata
+```{r, echo=FALSE}
+
+feature_plots <- FeaturePlot(combined_seurat_both33, features = c("Ntrk3trunc", "Ntrk3FL"), raster = FALSE)
+feature_plots[[1]] <- feature_plots[[1]] + labs(title = "TrkC.T1")
+feature_plots[[2]] <- feature_plots[[2]] + labs(title = "TrkC.FL")
+feature_plots
+ggsave("isoforms_feature_plot.png", plot = feature_plots, width = 10, height = 8, dpi = 300)
+
+```

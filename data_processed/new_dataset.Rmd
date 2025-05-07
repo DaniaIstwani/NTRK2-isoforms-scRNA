@@ -635,6 +635,8 @@ cluster.pred <- SingleR(test = sce_new,
 new_seurat_brain$SingleR_cluster_labels <- cluster.pred$labels[new_seurat_brain$seurat_clusters]
 
 DimPlot(new_seurat_brain, group.by = "SingleR_cluster_labels", label = TRUE)
+DimPlot(new_seurat_brain)
+
 ```
 
 ```{r}
@@ -884,6 +886,9 @@ go_plot_FL_bp <- plot_GO_enrichment(brain_gene_list_FL, gene_id_type = 'ENTREZID
 go_plot_trunc_bp <- plot_GO_enrichment(brain_gene_list_trunc, gene_id_type = 'ENTREZID', 
                                     ontology = 'BP', pval_cutoff = 0.05, OrgDb = 'org.Mm.eg.db'+
                                     ggtitle("Gene Ontology Enrichment for Ntrk2trunc"))
+
+
+
 go_plot_trunc_bp
 go_plot_FL_bp
 ```
@@ -962,9 +967,9 @@ top_unique_terms <- bind_rows(
   trunc_top %>% mutate(Cluster = "TrkB.T1")
 )
 top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
-#top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
-
- 
+top_unique_terms$ShortDescription <- sapply(strsplit(top_unique_terms$Description, " "), function(words) {
+  paste(head(words, 3), collapse = " ")
+})
   # If there are no unique terms, stop the function here
   if (nrow(top_unique_terms) == 0) {
     print(paste("No unique GO terms for ontology", ontology))
@@ -974,33 +979,38 @@ top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), 
 
 
   # Plot using ggplot
-  p <- ggplot(top_unique_terms, aes(x = reorder(Description, p.adjust), y = Cluster )) +
+  p <- ggplot(top_unique_terms, aes(x  = Cluster , y = reorder(ShortDescription, p.adjust))) +
   geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
   coord_flip() +
   labs(
     title = paste("Top Unique GO Terms:", ontology_full, "- TrkB.FL vs TrkB.T1"),
-    x = "Go Term", y = "Transcript Isoform",
+    x = "Transcript Isoform", y = "Go Term",
     size = "-log10(p.adjust)", color = "GeneRatio"
   ) +
   scale_color_viridis_c(option = "C", direction = 1) +
+  scale_x_discrete(expand = expansion(mult = c(0.4, 0.4))) +
   theme_minimal() +
   theme(
-    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
-    axis.text.y = element_text(size = 9),  # Reduce font size for y-axis labels
+  
+    plot.title = element_text(hjust = 0),
+    plot.title.position = "plot",
     axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-    plot.margin = margin(t = 20, r = 20, b = 20, l = 50),  # Increase left margin
-    legend.position = "right"
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(t = 10, r = 10, b = 20, l = 15),  # top, right, bottom, left
+    legend.position = "right",
+    legend.box.margin = margin(0, 10, 0, 0)
   )
-print(p)
+  print(p)
+  
 }
-#   ggsave(
-#   filename = paste0("GO_TopUnique_", ontology_full, ".png"),
-#   plot = p,
-#   width = 10,
-#   height = 6,
-#   dpi = 300
-# )
-# }
+  ggsave(
+  filename = paste0("new_GO_TopUnique_", ontology_full, ".png"),
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+
 # Generate plots for each ontology
 for (ontology in ontologies) {
   generate_plots_for_ontology(ontology)
@@ -1009,3 +1019,160 @@ for (ontology in ontologies) {
 
 
 ```
+
+```{r}
+ontologies <- c("BP", "CC", "MF")
+
+gene_lists <- list(FL= converted_genes_FL$ENTREZID,
+                   trunc = converted_genes_trunc$ENTREZID)
+
+# Function to generate plots for each ontology
+generate_plots_for_ontology <- function(ontology) {
+  ontology_full <- switch(ontology,
+  "BP" = "Biological Process",
+  "CC" = "Cellular Component",
+  "MF" = "Molecular Function",
+  ontology  # default fallback
+)
+  # Compare GO terms for each cluster (trunc and FL)
+  compare_go <- compareCluster(
+    geneCluster = gene_lists,
+    fun = "enrichGO",
+    OrgDb = org.Mm.eg.db,
+    keyType = "ENTREZID",
+    ont = ontology,
+    pvalueCutoff = 0.05,
+    pAdjustMethod = "BH",
+    qvalueCutoff = 0.2,
+    readable = TRUE
+  )
+  
+  go_df <- compare_go@compareClusterResult
+  print(paste("Number of GO terms for ontology", ontology, ":", nrow(go_df)))  # Debugging
+  
+  # Filter significant results
+  filtered_go <- go_df %>%
+    filter(p.adjust < 0.05) %>%
+    dplyr::select(Description, Cluster, p.adjust, GeneRatio)
+  
+  print(paste("Number of significant GO terms for ontology", ontology, ":", nrow(filtered_go)))  # Debugging
+  
+  # If there are no significant terms, stop the function here
+  if (nrow(filtered_go) == 0) {
+    print(paste("No significant GO terms for ontology", ontology))
+    return(NULL)  # Exit if no significant results
+  }
+  
+  # Separate by Cluster (FL vs trunc) and examine the differences
+  fl_terms <- filtered_go %>% filter(Cluster == "FL")
+  trunc_terms <- filtered_go %>% filter(Cluster == "trunc")
+  
+  # Identify the GO terms that are different (unique for each isoform)
+  fl_unique <- setdiff(fl_terms$Description, trunc_terms$Description)
+  trunc_unique <- setdiff(trunc_terms$Description, fl_terms$Description)
+  
+  # Select top N unique terms by significance (lowest p.adjust)
+
+  top_n <- 15
+
+  fl_top <- fl_terms %>%
+  filter(Description %in% fl_unique) %>%
+  arrange(p.adjust) %>%
+  slice_head(n = top_n)
+
+  trunc_top <- trunc_terms %>%
+  filter(Description %in% trunc_unique) %>%
+  arrange(p.adjust) %>%
+  slice_head(n = top_n)
+
+  
+top_unique_terms <- bind_rows(
+  fl_top %>% mutate(Cluster = "TrkB.FL"),
+  trunc_top %>% mutate(Cluster = "TrkB.T1")
+)
+top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
+
+ top_unique_terms$ShortDescription <- sapply(strsplit(top_unique_terms$Description, " "), function(words) {
+  paste(head(words, 3), collapse = " ")
+})
+  # If there are no unique terms, stop the function here
+  if (nrow(top_unique_terms) == 0) {
+    print(paste("No unique GO terms for ontology", ontology))
+    return(NULL)  # Exit if no unique terms
+  }
+  
+
+
+  # Plot using ggplot
+  p <- ggplot(top_unique_terms, aes(x  = Cluster , y = reorder(ShortDescription, p.adjust))) +
+  geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
+  coord_flip() +
+  labs(
+    title = paste("Top Unique GO Terms:", ontology_full, "- TrkB.FL vs TrkB.T1"),
+    x = "Transcript Isoform", y = "Go Term",
+    size = "-log10(p.adjust)", color = "GeneRatio"
+  ) +
+  scale_color_viridis_c(option = "C", direction = 1) +
+  scale_x_discrete(expand = expansion(mult = c(0.4, 0.4))) +
+  theme_minimal() +
+  theme(
+  
+    plot.title = element_text(hjust = 0),
+    plot.title.position = "plot",
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(t = 10, r = 10, b = 20, l = 15),  # top, right, bottom, left
+    legend.position = "right",
+    legend.box.margin = margin(0, 10, 0, 0)
+  )
+  print(p)
+  
+  ggsave(
+  filename = paste0("new_GO_TopUnique_", ontology_full, ".png"),
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+  
+  
+# For summary (all unique significant terms, not just top 15)
+all_unique_terms <- bind_rows(
+  fl_terms %>% filter(Description %in% fl_unique) %>% mutate(Cluster = "TrkB.FL"),
+  trunc_terms %>% filter(Description %in% trunc_unique) %>% mutate(Cluster = "TrkB.T1")
+)
+
+# Summary barplot
+summary_df <- all_unique_terms %>%
+  group_by(Cluster) %>%
+  summarise(
+    n_terms = n(),
+    avg_significance = mean(-log10(p.adjust)),
+    .groups = 'drop'
+  )
+
+p_summary <- ggplot(summary_df, aes(x = Cluster, y = n_terms, fill = avg_significance)) +
+  geom_col(width = 0.6) +
+  scale_fill_viridis_c(option = "C", name = "Avg -log10(p.adjust)") +
+  labs(
+    title = paste("Total Unique Significant GO Terms -", ontology_full),
+    x = "Transcript Isoform",
+    y = "Number of Unique GO Terms"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text = element_text(size = 10)
+  )
+
+print(p_summary)
+
+  }
+# Generate plots for each ontology
+for (ontology in ontologies) {
+  generate_plots_for_ontology(ontology)
+}
+
+```
+
