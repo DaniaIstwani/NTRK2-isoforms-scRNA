@@ -42,25 +42,26 @@ knitr::opts_chunk$set(eval = FALSE)
 rds_directory_both3 <- "/data/gpfs/projects/punim2183/samples_processing/count_matrix_files/cm_Ntrk3"
 
 # 1. Load with renaming data
-seurat_list_both3 <- read_rds_to_seurat(rds_directory_both3) |> rename_cells_in_seurat_objects()
+seurat_list_both3 <- read_rds_to_seurat(rds_directory_both3) 
+ seurat_list_both3 <- rename_cells_in_seurat_objects(seurat_list_both3)
 
 seurat_list_both3 <- readRDS("/data/gpfs/projects/punim2183/data_processed/seurat_list_both3.rds")
 # 2. Normalize and merge
-combined_seurat_both33 <- normalize_and_merge(seurat_list_both3)
+combined_seurat_both3 <- normalize_and_merge(seurat_list_both3)
 
-combined_seurat_both33 <- update_orig_ident(combined_seurat_both33)
+combined_seurat_both3 <- update_orig_ident(combined_seurat_both3)
 
 # 3. Process with Harmony integration
-combined_seurat_both33 <- process_seurat(combined_seurat_both33)
-combined_seurat_both33 <- run_harmony(combined_seurat_both33, group.by.vars = "orig.ident", npcs = 20)
+combined_seurat_both3 <- process_seurat(combined_seurat_both3)
+combined_seurat_both3 <- run_harmony(combined_seurat_both3, group.by.vars = "orig.ident", npcs = 20)
 
 # 4. Save the processed object
-saveRDS(combined_seurat_both33, "combined_seurat_both33.rds")
+saveRDS(combined_seurat_both3, "combined_seurat_both3.rds")
 
 # Print a success message
 print("Workflow completed successfully! The combined Seurat object has been saved.")
 
-
+FeaturePlot(combined_seurat_both3, features = c("Ntrk3FL", "Ntrk3FL"))
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
 oligos_markers = c("Mbp", "Olig1", "Olig2")
 astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
@@ -71,10 +72,12 @@ count_expressing_cells <- function(markers, combined_seurat_both33) {
   return(num_cells)
 }
 
-markers_feature_plot <- FeaturePlot(combined_seurat_both33, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
+markers_feature_plot <- FeaturePlot(combined_seurat_both3, c(neurons_markers, astrocytes_markers, oligos_markers), raster = FALSE)
 markers_feature_plot
-FeaturePlot(combined_seurat_both33, features = c("Ntrk3FL", "Ntrk3trunc"))
+FeaturePlot(combined_seurat_both3, features = c("Ntrk3FL", "Ntrk3FL"), raster = FALSE)
 ```
+
+
 
 ```{r}
 combined_seurat_both3 <- JoinLayers(combined_seurat_both3, assay = "RNA")
@@ -91,13 +94,16 @@ sce <- as.SingleCellExperiment(combined_seurat_both3, assay = "RNA")
 cluster.pred <- SingleR(test = sce, ref = ref, labels = ref$label.main, clusters = combined_seurat_both3$seurat_clusters)
 combined_seurat_both3$SingleR_cluster_labels <- cluster.pred$labels[combined_seurat_both3$seurat_clusters]
 
-cell_types_dim <- DimPlot(combined_seurat_both3, group.by = "SingleR_cluster_labels", label = TRUE) +labs(title = "Cell Type Clusters")
-cell_types_dim
+cell_types_dim3 <- DimPlot(combined_seurat_both3, group.by = "SingleR_cluster_labels", label = TRUE) +labs(title = "Cell Type Clusters")
+cell_types_dim3
 
-VlnPlot(combined_seurat_both3, features = c("Ntrk3FL", "Ntrk3trunc"), group.by = "SingleR_cluster_labels", pt.size = FALSE)
+vlnplot3 <- VlnPlot(combined_seurat_both3, features = c("Ntrk3FL", "Ntrk3FL"), group.by = "SingleR_cluster_labels", pt.size = 0.1, slot = "data", raster = FALSE)
 
 expr_values_trunc <- GetAssayData(combined_seurat_both3, slot = "data")["Ntrk3trunc", ]
 expr_values_FL <- GetAssayData(combined_seurat_both3, slot = "data")["Ntrk3FL", ]
+
+ggsave("vlnplot3.png", plot = vlnplot3, width = 10, height = 8, dpi = 300)
+ggsave("cell_types_dim3.png", plot = cell_types_dim3, width = 10, height = 8, dpi = 300)
 
 table(expr_values_trunc > 0)
 table(expr_values_FL > 0)
@@ -108,10 +114,259 @@ table(expr_values_FL > 0)
 Check the representation of the transcript isoforms as genes in the metadata
 ```{r, echo=FALSE}
 
-feature_plots <- FeaturePlot(combined_seurat_both33, features = c("Ntrk3trunc", "Ntrk3FL"), raster = FALSE)
+feature_plots <- FeaturePlot(combined_seurat_both3, features = c("Ntrk3trunc", "Ntrk3FL"), raster = FALSE)
 feature_plots[[1]] <- feature_plots[[1]] + labs(title = "TrkC.T1")
 feature_plots[[2]] <- feature_plots[[2]] + labs(title = "TrkC.FL")
 feature_plots
-ggsave("isoforms_feature_plot.png", plot = feature_plots, width = 10, height = 8, dpi = 300)
+ggsave("isoforms_feature_plot3.png", plot = feature_plots, width = 10, height = 8, dpi = 300)
+
+```
+
+```{r}
+combined_seurat_both3 <- readRDS("combined_seurat_both3.rds")
+
+# get layer data (returns matrix) this is for Seurat V5(when dealing with the whole data not only the subset)
+counts_matrix3 <- LayerData(combined_seurat_both3, assay = "RNA", layer = "counts")
+data_matrix3 <- LayerData(combined_seurat_both3, assay = "RNA", layer = "data")
+
+# set layer data
+combined_seurat_both3 <- SetAssayData(
+  object = combined_seurat_both3,
+  assay = "RNA",
+  layer = "counts",
+  new.data = as(counts_matrix3, "dgCMatrix")  # Convert to sparse
+)
+
+# For normalized data
+combined_seurat_both3 <- SetAssayData(
+  object = combined_seurat_both3,
+  assay = "RNA",
+  layer = "data",
+  new.data = as(data_matrix3, "dgCMatrix")
+)
+
+
+# Before running CSCORE, ensure data stays sparse
+library(Matrix)
+combined_seurat_both3 <- SetAssayData(
+  combined_seurat_both3,
+  assay = "RNA",
+  layer = "data",
+  new.data = as(LayerData(combined_seurat_both3, layer = "data"), "dgCMatrix")
+)
+
+coexp_results3 <- run_CSCORE_on_Seurat_v5(
+  combined_seurat_both3,
+  assay = "RNA",
+  layer = "data",
+  n_genes = 1500, #top 1500 with meaningful expression
+)
+
+# coexp_results <- run_CSCORE_on_Seurat_v5_optimized(
+#   combined_seurat_bothect = combined_seurat_both,
+#   assay = "RNA",
+#   layer = "data",
+#   n_genes = 5000,
+# )
+
+
+coexp_matrix3 <- coexp_results3$coexpression_matrix
+
+
+# Save co-expression matrix as a CSV file
+write.csv(coexp_matrix3, "coexp_matrix3.csv", row.names = TRUE)
+# Save co-expression matrix as an RDS file
+saveRDS(coexp_matrix3, "coexp_matrix3.rds")
+
+coexp_matrix3 <- readRDS("coexp_matrix3.rds")
+
+```
+
+
+```{r}
+
+target_gene <- "Ntrk3trunc"
+
+target_gene_expression_trunc3 <- coexp_matrix3[target_gene, ]
+
+# Calculate correlations
+# correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+#   cor(target_gene_expression_trunc3, gene_expression, method = "pearson")
+# })
+
+correlation_df_trunc3 <- data.frame(
+  gene = rownames(coexp_matrix3),
+  correlation = coexp_matrix3["Ntrk3trunc", ],
+  row.names = NULL
+)
+
+# Sort by absolute correlation
+correlation_df_trunc3 <- correlation_df_trunc3[order(-abs(correlation_df_trunc3$correlation)), ]
+
+# Filter for significant correlations
+significant_correlations_trunc3 <- correlation_df_trunc3[abs(correlation_df_trunc3$correlation) > 0.4, ] 
+sig_genes_trunc3 <- significant_correlations_trunc3$gene
+
+
+genes_0.1_corr_trunc3 <- correlation_df_trunc3[abs(correlation_df_trunc3$correlation) > 0.1, ]
+genes_0.2_corr_trunc3 <- correlation_df_trunc3[abs(correlation_df_trunc3$correlation) > 0.2, ]
+
+
+# Plot the top 20 correlated genes (barplot)
+top_20_genes_trunc3 <- head(significant_correlations_trunc3, 20)
+top_20_genes_barplot_trunc3 <- ggplot(top_20_genes_trunc3, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+top_20_genes_barplot_trunc3
+
+top_20_genes_trunc3$gene
+ggsave("top_20_genes_barplot_trunc3.png", plot = top_20_genes_barplot_trunc3, width = 10, height = 8, dpi = 300)
+
+# Extract the top 10 genes
+top20_genes_trunc3 <- head((significant_correlations_trunc3$gene), 21)
+
+# Subset the expression matrix
+heatmap_matrix_top20_trunc3 <- coexp_matrix[top20_genes_trunc3, top20_genes_trunc3]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top20_trunc3)
+
+# Plot heatmap
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
+
+col_labels <- colnames(heatmap_matrix_top20_trunc3)
+row_labels <- rownames(heatmap_matrix_top20_trunc3)
+
+# Define styles for column names
+row_font_colors_trunc3 <- ifelse(row_labels == "Ntrk3trunc", "red", "black")
+col_font_colors_trunc3 <- ifelse(col_labels == "Ntrk3trunc", "red", "black")
+col_font_face_trunc3 <- ifelse(col_labels == "Ntrk3trunc", "bold", "plain")
+
+heatmap_plot_trunc3 <- Heatmap(heatmap_matrix_top20_trunc3,
+        name = "Correlation",
+        col = col_fun,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc3, col = row_font_colors_trunc3),
+        column_names_gp = gpar(fontsize = 10, fontface = col_font_face_trunc3, col = col_font_colors_trunc3),
+        column_names_rot = 45,
+        rect_gp = gpar(col = "white", lwd = 1))
+
+
+# Draw the heatmap
+draw(heatmap_plot_trunc3, 
+     column_title= "Top 20 Genes Co-expressed with TrkB.T1",
+   column_title_gp=grid::gpar(fontsize=16))
+
+png("Ntrk2trunc_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_trunc3,
+     column_title = "Top 20 Genes Co-expressed with TrkB.T1",
+     column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
+dev.off()  # Close the PNG device
+
+
+
+```
+
+```{r}
+target_gene <- "Ntrk3FL"
+
+target_gene_expression_FL3 <- coexp_matrix3[target_gene, ]
+
+# Calculate correlations
+# correlations <- apply(coexp_matrix, 1, function(gene_expression) {
+#   cor(target_gene_expression_FL3, gene_expression, method = "pearson")
+# })
+
+correlation_df_FL3 <- data.frame(
+  gene = rownames(coexp_matrix3),
+  correlation = coexp_matrix3["Ntrk3FL", ],
+  row.names = NULL
+)
+
+# Sort by absolute correlation
+correlation_df_FL3 <- correlation_df_FL3[order(-abs(correlation_df_FL3$correlation)), ]
+
+# Filter for significant correlations
+significant_correlations_FL3 <- correlation_df_FL3[abs(correlation_df_FL3$correlation) > 0.4, ] 
+sig_genes_FL3 <- significant_correlations_FL3$gene
+
+
+genes_0.1_corr_FL3 <- correlation_df_FL3[abs(correlation_df_FL3$correlation) > 0.1, ]
+genes_0.2_corr_FL3 <- correlation_df_FL3[abs(correlation_df_FL3$correlation) > 0.2, ]
+
+
+# Plot the top 20 correlated genes (barplot)
+top_20_genes_FL3 <- head(significant_correlations_FL3, 20)
+top_20_genes_barplot_FL3 <- ggplot(top_20_genes_FL3, aes(x = reorder(gene, correlation), y = correlation)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = paste("Top Genes Correlated with", target_gene),
+       x = "Gene",
+       y = "Correlation") +
+  theme_minimal()
+top_20_genes_barplot_FL3
+
+top_20_genes_FL3$gene
+ggsave("top_20_genes_barplot_FL3.png", plot = top_20_genes_barplot_FL3, width = 10, height = 8, dpi = 300)
+
+# Extract the top 10 genes
+top20_genes_FL3 <- head((significant_correlations_FL3$gene), 21)
+
+# Subset the expression matrix
+heatmap_matrix_top20_FL3 <- coexp_matrix[top20_genes_FL3, top20_genes_FL3]
+
+# Check the dimensions of the heatmap matrix
+dim(heatmap_matrix_top20_FL3)
+
+# Plot heatmap
+
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+
+col_fun <- colorRamp2(c(0, 0.5 , 1), c("blue", "yellow", "red"))
+
+col_labels <- colnames(heatmap_matrix_top20_FL3)
+row_labels <- rownames(heatmap_matrix_top20_FL3)
+
+# Define styles for column names
+row_font_colors_FL3 <- ifelse(row_labels == "Ntrk3FL", "red", "black")
+col_font_colors_FL3 <- ifelse(col_labels == "Ntrk3FL", "red", "black")
+col_font_face_FL3 <- ifelse(col_labels == "Ntrk3FL", "bold", "plain")
+
+heatmap_plot_FL3 <- Heatmap(heatmap_matrix_top20_FL3,
+        name = "Correlation",
+        col = col_fun,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        row_names_gp = gpar(fontsize = 10, fontface = col_font_face_FL3, col = row_font_colors_FL3),
+        column_names_gp = gpar(fontsize = 10, fontface = col_font_face_FL3, col = col_font_colors_FL3),
+        column_names_rot = 45,
+        rect_gp = gpar(col = "white", lwd = 1))
+
+
+# Draw the heatmap
+draw(heatmap_plot_FL3, 
+     column_title= "Top 20 Genes Co-expressed with TrkB.T1",
+   column_title_gp=grid::gpar(fontsize=16))
+
+png("Ntrk2FL_correlation_heatmap.png", width = 10, height = 8, units = "in", res = 300)  
+draw(heatmap_plot_FL3,
+     column_title = "Top 20 Genes Co-expressed with TrkB.T1",
+     column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
+dev.off()  # Close the PNG device
+
+
+
 
 ```

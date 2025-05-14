@@ -392,6 +392,15 @@ coexp_results <- run_CSCORE_on_Seurat_v5(
 
 
 coexp_matrix <- coexp_results$coexpression_matrix
+
+
+# Save co-expression matrix as a CSV file
+write.csv(coexp_matrix, "coexp_matrix.csv", row.names = TRUE)
+# Save co-expression matrix as an RDS file
+saveRDS(coexp_matrix, "coexp_matrix.rds")
+
+coexp_matrix <- readRDS("coexp_matrix.rds")
+
 ```
 
 
@@ -444,6 +453,7 @@ ggsave("top_20_genes_barplot_trunc.png", plot = top_20_genes_barplot_trunc, widt
 
 # Extract the top 10 genes
 top20_genes_trunc <- head((significant_correlations_trunc$gene), 21)
+top50_genes_trunc <- head((significant_correlations_trunc$gene), 51)
 
 # Subset the expression matrix
 heatmap_matrix_top20_trunc <- coexp_matrix[top20_genes_trunc, top20_genes_trunc]
