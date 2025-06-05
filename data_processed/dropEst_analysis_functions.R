@@ -99,7 +99,6 @@ normalize_and_merge <- function(seurat_objects_list) {
 
 
 
-
 update_orig_ident <- function(seurat_object) {
   #function that updates the orig.ident metadata column based on the sample names extracted from the cell names.
   #input: merged seurat object, output: updated metadata with correspondent cell names.
@@ -189,7 +188,7 @@ run_CSCORE_on_Seurat_v5 <- function(
   #adjusted_p_values: The BH-adjusted p-values.
   #selected_genes: The genes used for the analysis.
     seurat_object, 
-    n_genes = 5000,          
+    n_genes = 5000,   #chosen to minimise the computational force needed      
     assay = "RNA", 
     layer = "data", 
     cscore_genes = NULL
@@ -229,7 +228,7 @@ run_CSCORE_on_Seurat_v5 <- function(
     genes = genes_selected
   )
   
-  # 7. Process results (unchanged)
+  # 7. Process results 
   CSCORE_coexp <- CSCORE_result$est
   CSCORE_p <- CSCORE_result$p_value
   
@@ -248,105 +247,12 @@ run_CSCORE_on_Seurat_v5 <- function(
 }
 
 
-####################################
-# Replace Matrix::rowMeans with sparse-friendly alternative
-gene_means <- sparse_row_stats(sparse_data, "mean")  # Custom function below
-
-sparse_row_stats <- function(x, stat = "mean") {
-  if (stat == "mean") {
-    Matrix::rowSums(x) / ncol(x)
-  } else if (stat == "variance") {
-    (Matrix::rowSums(x^2) / ncol(x)) - (Matrix::rowSums(x) / ncol(x))^2
-  }
-}
-
-# Instead of converting entire subset to dense:
-dense_subset <- as.matrix(sparse_subset)
-
-# Use sparse-compatible CSCORE (if available) or:
-cor_sparse <- qlcMatrix::corSparse(Matrix::t(sparse_subset))
-CSCORE_result <- your_sparse_CSCORE_wrapper(cor_sparse)  # See below
-
-run_CSCORE_on_Seurat_v5_optimized <- function(
-    seurat_object, 
-    n_genes = 3000,          
-    assay = "RNA", 
-    layer = "data", 
-    cscore_genes = NULL,
-    chunk_size = NULL  # New: process in chunks if provided
-) {
-  # 1. Extract sparse data
-  sparse_data <- LayerData(seurat_object, assay = assay, layer = layer)
-  
-  # 2. Select genes (sparse-compatible)
-  if (is.null(cscore_genes)) {
-    gene_means <- sparse_row_stats(sparse_data, "mean")
-    genes_selected <- names(sort(gene_means, decreasing = TRUE)[1:n_genes])
-  } else {
-    genes_selected <- intersect(cscore_genes, rownames(sparse_data))
-  }
-  
-  # 3. Chunked processing (if requested)
-  if (!is.null(chunk_size)) {
-    return(run_chunked_CSCORE(sparse_data, genes_selected, chunk_size))
-  }
-  
-  # 4. Sparse correlation
-  cor_sparse <- qlcMatrix::corSparse(Matrix::t(sparse_data[genes_selected, ]))
-  
-  # 5. CSCORE-compatible formatting
-  diag(cor_sparse) <- 1  # Set diagonal to 1
-  CSCORE_result <- list(
-    est = cor_sparse,
-    p_value = matrix(0, nrow(cor_sparse), ncol(cor_sparse))  # Placeholder
-  )
-  
-  # 6. P-value adjustment (unchanged)
-  p_matrix_BH <- matrix(0, length(genes_selected), length(genes_selected))
-  p_matrix_BH[upper.tri(p_matrix_BH)] <- p.adjust(
-    CSCORE_result$p_value[upper.tri(CSCORE_result$p_value)], 
-    method = "BH"
-  )
-  CSCORE_result$est[p_matrix_BH > 0.05] <- 0
-  
-  return(list(
-    coexpression_matrix = `dimnames<-`(CSCORE_result$est, list(genes_selected, genes_selected)),
-    p_values = `dimnames<-`(CSCORE_result$p_value, list(genes_selected, genes_selected)),
-    adjusted_p_values = `dimnames<-`(p_matrix_BH, list(genes_selected, genes_selected)),
-    selected_genes = genes_selected
-  ))
-}
-
-# Helper for chunked processing
-run_chunked_CSCORE <- function(data, genes, chunk_size) {
-  chunks <- split(genes, ceiling(seq_along(genes)/chunk_size))
-  results <- lapply(chunks, function(chunk) {
-    cor_chunk <- qlcMatrix::corSparse(Matrix::t(data[chunk, ]))
-    list(cor = cor_chunk, genes = chunk)
-  })
-  # Merge results here (see previous overlapping chunks approach)
-}
-
-get_high_correlation_features <- function(matrix, variable_vector, threshold, method = 'pearson'){
-  # taking a matrix and a vector (numerical), find features (rows) that have absolute correlation score (both positive and negative) greater than your set threshold value with your variable vector. 
-  correlations <- lapply(1:nrow(matrix), function(x) {cor(as.vector(as.numeric(matrix[x,])),as.vector(variable_vector), method=method)})
-  
-  correlations <- as.matrix(unlist(correlations))
-  
-  rownames(correlations) <- rownames(as.matrix(matrix))
-  
-  high_corr_features <- correlations[which(abs(correlations) > threshold), drop = FALSE]
-  
-  return(high_corr_features)
-  
-}
-
 plot_GO_enrichment <- function(gene_name_vector, gene_id_type = 'ENTREZID', ontology = 'BP', pval_cutoff = 0.2, OrgDb = 'org.Mm.eg.db') {
-#generates Gene Ontology (GO) enrichment dot plots for a given list of genes. It utilizes the enrichGO function from the clusterProfiler package to perform GO enrichment analysis, followed by plotting the results using the enrichplot package.
-
-#Input: A vector of gene identifiers (default is SYMBOL), the type of identifier (ENTREZID), the GO ontology type (BP, CC, MF), and the p-value cutoff, org.Mm.eg.db as the mouse database
-#Output: A GO enrichment dot plot.
-
+  #generates Gene Ontology (GO) enrichment dot plots for a given list of genes. It utilizes the enrichGO function from the clusterProfiler package to perform GO enrichment analysis, followed by plotting the results using the enrichplot package.
+  
+  #Input: A vector of gene identifiers (default is SYMBOL), the type of identifier (ENTREZID), the GO ontology type (BP, CC, MF), and the p-value cutoff, org.Mm.eg.db as the mouse database
+  #Output: A GO enrichment dot plot.
+  
   enrich_obj <- enrichGO(gene = gene_name_vector,
                          OrgDb = 'org.Mm.eg.db', 
                          keyType = gene_id_type, 
@@ -369,9 +275,9 @@ plot_GO_enrichment <- function(gene_name_vector, gene_id_type = 'ENTREZID', onto
       }),
       ShortDescription = str_wrap(ShortDescription, width = 40)
     )
-
- 
-    # Plot using ggplot
+  
+  
+  # Plot using ggplot
   p <- ggplot(df, aes(x = log10padj, y = reorder(ShortDescription, log10padj))) +
     geom_point(aes(size = Count, color = GeneRatio)) +
     scale_color_viridis_c(option = "C", direction = 1) +
@@ -391,6 +297,22 @@ plot_GO_enrichment <- function(gene_name_vector, gene_id_type = 'ENTREZID', onto
   print(p)
 }
 
+
+
+
+get_high_correlation_features <- function(matrix, variable_vector, threshold, method = 'pearson'){
+  # taking a matrix and a vector (numerical), find features (rows) that have absolute correlation score (both positive and negative) greater than your set threshold value with your variable vector. 
+  correlations <- lapply(1:nrow(matrix), function(x) {cor(as.vector(as.numeric(matrix[x,])),as.vector(variable_vector), method=method)})
+  
+  correlations <- as.matrix(unlist(correlations))
+  
+  rownames(correlations) <- rownames(as.matrix(matrix))
+  
+  high_corr_features <- correlations[which(abs(correlations) > threshold), drop = FALSE]
+  
+  return(high_corr_features)
+  
+}
 
 
 

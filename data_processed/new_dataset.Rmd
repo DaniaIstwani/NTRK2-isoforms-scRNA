@@ -538,6 +538,7 @@ for (ontology in ontologies) {
 ```
 # Brain dataset
 ```{r}
+
 # 1. Load data and create Seurat object
 #saveRDS(new_seurat_brain,"new_seurat_brain.rds" )
 new_seurat_brain <- readRDS("new_seurat_brain.rds")
@@ -614,7 +615,7 @@ ggsave("isoforms_feature_plot_new.png", plot = feature_plots, width = 10, height
 neurons_markers = c("Map2", "Rbfox3", "Tubb3")
 #oligos_markers = c("Mbp", "Olig1", "Olig2")
 astrocytes_markers = c("Gfap", "Aqp4", "Slc1a3")
-
+FeaturePlot(new_seurat_brain, features = c("Ntrk2trunc", "Slc1a2"))
 markers_feature_plot_new <- FeaturePlot(new_seurat_brain, c(neurons_markers, astrocytes_markers), raster = FALSE)
 markers_feature_plot_new
 ggsave("markers_feature_plot_new.png", plot = markers_feature_plot_new, width = 10, height = 8, dpi = 300)

@@ -26,6 +26,12 @@ objects](/data/gpfs/projects/punim2183/data_processed/table_naming_seurats.png)
     library(org.Mm.eg.db)
     library(enrichplot)
     library(glmGamPoi)
+    library(stringr)
+
+    library(SingleR)
+    library(celldex)
+    library(Seurat)
+    library(SingleCellExperiment)
 
 
     source("/data/gpfs/projects/punim2183/data_processed/dropEst_analysis_functions.R")
@@ -36,7 +42,7 @@ objects](/data/gpfs/projects/punim2183/data_processed/table_naming_seurats.png)
      # 
      # knitr::knit("dropEst_output.Rmd", output = "dropEst_output_analysis.md")
 
-     rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
+     #rmarkdown::render("dropEst_output.Rmd", output_format = "md_document", output_file = "dropEst_output_analysis.md")
 
 The Following steps explain how the Dropest generated count matrices are
 converted and saved as an rds Seurat objects:
@@ -60,14 +66,14 @@ Then combine multiple Seurat objects into a single Seurat object.
 
 *Extract the naming pattern (e.g., “10X05\_1”)*
 
-**input** seurat\_objects\_both (a list of Seurat objects with names
-like count\_matrix.rds\_10X05\_1.bam.1\_both.gtf).
+**input** combined\_seurat\_bothects\_both (a list of Seurat objects
+with names like count\_matrix.rds\_10X05\_1.bam.1\_both.gtf).
 
-**Output** Each Seurat object in seurat\_objects\_both now has cell
-names prefixed with the corresponding naming pattern (e.g.,
+**Output** Each Seurat object in combined\_seurat\_bothects\_both now
+has cell names prefixed with the corresponding naming pattern (e.g.,
 “10X05\_1\_Cell\_1”).
 
-    seurat_list_both <- rename_cells_in_seurat_objects(seurat_list_both)
+    seurat_list_both <- rename_cells_in_combined_seurat_bothects(seurat_list_both)
 
 # Step 3: Normalize and merge Seurat objects
 
@@ -131,7 +137,77 @@ of cell types of interest
 Check reductions done to the object for clustering, and join assay
 layers for Seurat v5
 
-# Assign Clusters to cell types of interest
+# Cell annotation:
+
+    combined_seurat_both <- readRDS("/data/gpfs/projects/punim2183/data_processed/combined_seurat_both.rds")
+
+    combined_seurat_both <- JoinLayers(combined_seurat_both, assay = "RNA")
+
+    ref <- celldex::MouseRNAseqData()
+
+    sce <- as.SingleCellExperiment(combined_seurat_both, assay = "RNA")
+
+    #pred <- SingleR(test = sce, ref = ref, labels = ref$label.main)
+
+    #combined_seurat_both$SingleR_labels <- pred$labels
+
+    #using this instead cause we've already clustered
+    cluster.pred <- SingleR(test = sce, ref = ref, labels = ref$label.main, clusters = combined_seurat_both$seurat_clusters)
+    combined_seurat_both$SingleR_cluster_labels <- cluster.pred$labels[combined_seurat_both$seurat_clusters]
+
+    cell_types_dim <- DimPlot(combined_seurat_both, group.by = "SingleR_cluster_labels", label = TRUE) +labs(title = "Cell Type Clusters")
+    cell_types_dim
+
+    saveRDS(combined_seurat_both, "combined_seurat_both.rds")
+    ggsave("cell_types_dim.png", plot = cell_types_dim, width = 10, height = 8, dpi = 300)
+
+    VlnPlot(combined_seurat_both, features = c("Ntrk2FL", "Ntrk2trunc"), group.by = "SingleR_cluster_labels", pt.size = FALSE)
+
+    library(Seurat)
+    library(ggplot2)
+    library(patchwork)
+
+    vln_FL <- VlnPlot(
+      combined_seurat_both,
+      features = "Ntrk2FL",
+      group.by = "SingleR_cluster_labels",
+      pt.size = FALSE
+    ) + ggtitle("TrkB.FL")
+
+    vln_T1 <- VlnPlot(
+      combined_seurat_both,
+      features = "Ntrk2trunc",
+      group.by = "SingleR_cluster_labels",
+      pt.size = FALSE
+    ) + ggtitle("TrkB.T1")
+
+    vln_FL 
+    vln_T1
+    ggsave("vln_FL.png", plot = vln_FL, width = 10, height = 8, dpi = 300)
+    ggsave("vln_T1.png", plot = vln_T1, width = 10, height = 8, dpi = 300)
+
+    # Replace with your gene names
+    gene1 <- "Ntrk2FL"
+    gene2 <- "Ntrk2trunc"
+
+    # Extract expression values from the normalized data slot
+    expr_values <- FetchData(combined_seurat_both, vars = c(gene1, gene2))
+    head(expr_values)
+
+    #each dot here is one cell showing how much of each isoform it expresses 
+    #There are clear diagonal streaks of dots, showing a positive correlation between TrkB.FL and TrkB.T1 expression in many cells—especially in neurons (purple) and astrocytes (red).
+
+    ggplot(expr_values, aes_string(x = gene1, y = gene2, color = "combined_seurat_both$SingleR_cluster_labels")) +
+      geom_point(alpha = 0.5) +
+      labs(
+        title = "Expression of TrkB.T1 vs TrkB.FL by Cell Type",
+        x = "TrkB.FL",
+        y = "TrkB.T1",
+        color = "Cell Type"  
+      ) +
+      theme_minimal()
+
+# Assign Clusters to cell types of interest manually
 
 ## Subset seurat to cell types of interest for focused plotting
 
@@ -179,11 +255,30 @@ To compare GO enrichment results between two gene clusters (FL and
 trunc) across different ontology types (BP, MF, CC), and visualize GO
 terms uniquely enriched in one cluster but not the other.
 
+compareCluster(): - Takes a named list of gene vectors (in gene\_lists,
+one for FL and one for trunc).
+
+-   Runs enrichGO() for each group.
+
+-   Returns combined results in one object (compare\_go), making it easy
+    to compare.
+
+<!-- -->
+
     # List of ontologies to loop through
-    ontologies <- c("BP", "MF", "CC")
+    ontologies <- c("BP", "CC", "MF")
+
+    gene_lists <- list(FL= converted_genes_FL$ENTREZID,
+                       trunc = converted_genes_trunc$ENTREZID)
 
     # Function to generate plots for each ontology
     generate_plots_for_ontology <- function(ontology) {
+      ontology_full <- switch(ontology,
+      "BP" = "Biological Process",
+      "CC" = "Cellular Component",
+      "MF" = "Molecular Function",
+      ontology  # default fallback
+    )
       # Compare GO terms for each cluster (trunc and FL)
       compare_go <- compareCluster(
         geneCluster = gene_lists,
@@ -236,34 +331,50 @@ terms uniquely enriched in one cluster but not the other.
       slice_head(n = top_n)
 
       
-     top_unique_terms <- data.frame(
-      Term = c(fl_top$Description, trunc_top$Description),
-      Cluster = c(rep("FL", nrow(fl_top)), rep("trunc", nrow(trunc_top))),
-      stringsAsFactors = FALSE
+    top_unique_terms <- bind_rows(
+      fl_top %>% mutate(Cluster = "TrkB.FL"),
+      trunc_top %>% mutate(Cluster = "TrkB.T1")
     )
-     
+    top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), function(x) as.numeric(x[1]) / as.numeric(x[2]))
+    top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
+
+     top_unique_terms$ShortDescription <- sapply(strsplit(top_unique_terms$Description, " "), function(words) {
+      paste(head(words, 4), collapse = " ")
+    })
       # If there are no unique terms, stop the function here
       if (nrow(top_unique_terms) == 0) {
         print(paste("No unique GO terms for ontology", ontology))
         return(NULL)  # Exit if no unique terms
       }
       
+
+
       # Plot using ggplot
-      p <- ggplot(top_unique_terms, aes(x = Term, y = Cluster, color = Cluster)) +
-        geom_point(size = 4) +
-        coord_flip() +
-        labs(title = paste("Top Unique GO Terms:", ontology, "- Ntrk2FL vs Ntrk2trunc"),
-             x = "GO Term", y = "Cluster") +
-        scale_color_manual(values = c("blue", "red")) +  
-        theme_minimal() +
-        theme(plot.title = element_text(hjust = 0),  
-              plot.title.position = "plot",          
-              axis.text.x = element_text(angle = 45, hjust = 1),
-              axis.text.y = element_text(size = 10))
+      p <- ggplot(top_unique_terms, aes(x  = Cluster , y = reorder(ShortDescription, p.adjust))) +
+      geom_point(aes(size = -log10(p.adjust), color = GeneRatio)) +
+      coord_flip() +
+      labs(
+        title = paste("Top Unique GO Terms:", ontology_full, "- TrkB.FL vs TrkB.T1"),
+        x = "Transcript Isoform", y = "Go Term",
+        size = "-log10(p.adjust)", color = "GeneRatio"
+      ) +
+      scale_color_viridis_c(option = "C", direction = 1) +
+      scale_x_discrete(expand = expansion(mult = c(0.4, 0.4))) +
+      theme_minimal() +
+      theme(
+      
+        plot.title = element_text(hjust = 0),
+        plot.title.position = "plot",
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.text.y = element_text(size = 10),
+        plot.margin = margin(t = 10, r = 10, b = 20, l = 15),  # top, right, bottom, left
+        legend.position = "right",
+        legend.box.margin = margin(0, 10, 0, 0)
+      )
       print(p)
       
       ggsave(
-      filename = paste0("GO_TopUnique_", ontology, ".png"),
+      filename = paste0("GO_TopUnique_", ontology_full, ".png"),
       plot = p,
       width = 10,
       height = 6,
@@ -284,7 +395,7 @@ terms uniquely enriched in one cluster but not the other.
 
     # 1. Load with renaming data
     seurat_list_M10 <- read_rds_to_seurat(rds_directory_orig) |>
-      rename_cells_in_seurat_objects()
+      rename_cells_in_combined_seurat_bothects()
 
     # 2. Normalize with SCTransform and merge
     combined_seurat_M10 <- normalize_and_merge(seurat_list_M10) |>

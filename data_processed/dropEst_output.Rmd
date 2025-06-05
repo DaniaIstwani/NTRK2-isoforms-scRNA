@@ -265,6 +265,27 @@ vln_T1
 ggsave("vln_FL.png", plot = vln_FL, width = 10, height = 8, dpi = 300)
 ggsave("vln_T1.png", plot = vln_T1, width = 10, height = 8, dpi = 300)
 
+# Replace with your gene names
+gene1 <- "Ntrk2FL"
+gene2 <- "Ntrk2trunc"
+
+# Extract expression values from the normalized data slot
+expr_values <- FetchData(combined_seurat_both, vars = c(gene1, gene2))
+head(expr_values)
+
+#each dot here is one cell showing how much of each isoform it expresses 
+#There are clear diagonal streaks of dots, showing a positive correlation between TrkB.FL and TrkB.T1 expression in many cells—especially in neurons (purple) and astrocytes (red).
+
+ggplot(expr_values, aes_string(x = gene1, y = gene2, color = "combined_seurat_both$SingleR_cluster_labels")) +
+  geom_point(alpha = 0.5) +
+  labs(
+    title = "Expression of TrkB.T1 vs TrkB.FL by Cell Type",
+    x = "TrkB.FL",
+    y = "TrkB.T1",
+    color = "Cell Type"  
+  ) +
+  theme_minimal()
+
 
 ```
 # Assign Clusters to cell types of interest manually
@@ -426,15 +447,15 @@ correlation_df_trunc <- data.frame(
 )
 
 # Sort by absolute correlation
-correlation_df_trunc <- correlation_df_trunc[order(-abs(correlation_df_trunc$correlation)), ]
+correlation_df_trunc <- correlation_df_trunc[order(-(correlation_df_trunc$correlation)), ]
 
 # Filter for significant correlations
-significant_correlations_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.4, ] 
+significant_correlations_trunc <- correlation_df_trunc[(correlation_df_trunc$correlation) > 0.4, ] 
 sig_genes_trunc <- significant_correlations_trunc$gene
 
 
-genes_0.1_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.1, ]
-genes_0.2_corr_trunc <- correlation_df_trunc[abs(correlation_df_trunc$correlation) > 0.2, ]
+genes_0.1_corr_trunc <- correlation_df_trunc[(correlation_df_trunc$correlation) > 0.1, ]
+genes_0.2_corr_trunc <- correlation_df_trunc[(correlation_df_trunc$correlation) > 0.2, ]
 
 
 # Plot the top 20 correlated genes (barplot)
@@ -442,7 +463,7 @@ top_20_genes_trunc <- head(significant_correlations_trunc, 20)
 top_20_genes_barplot_trunc <- ggplot(top_20_genes_trunc, aes(x = reorder(gene, correlation), y = correlation)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
-  labs(title = paste("Top Genes Correlated with", target_gene),
+  labs(title = paste("Top Genes Correlated with TrkB.T1"),
        x = "Gene",
        y = "Correlation") +
   theme_minimal()
@@ -519,22 +540,22 @@ correlation_df_FL <- data.frame(
 )
 
 # Sort by absolute correlation
-correlation_df_FL <- correlation_df_FL[order(-abs(correlation_df_FL$correlation)), ]
+correlation_df_FL <- correlation_df_FL[order(-(correlation_df_FL$correlation)), ]
 
 # Filter for significant correlations
-significant_correlations_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.4, ] 
+significant_correlations_FL <- correlation_df_FL[(correlation_df_FL$correlation) > 0.4, ] 
 sig_genes_FL <- significant_correlations_FL$gene
 
 
-genes_0.1_corr_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.1, ]
-genes_0.2_corr_FL <- correlation_df_FL[abs(correlation_df_FL$correlation) > 0.2, ]
+genes_0.1_corr_FL <- correlation_df_FL[(correlation_df_FL$correlation) > 0.1, ]
+genes_0.2_corr_FL <- correlation_df_FL[(correlation_df_FL$correlation) > 0.2, ]
 
 # Plot the top 20 correlated genes
 top_genes <- head(significant_correlations_FL, 20)
-ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
+top_20_genes_barplot_FL<- ggplot(top_genes, aes(x = reorder(gene, correlation), y = correlation)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
-  labs(title = paste("Top Genes Correlated with", target_gene),
+  labs(title = paste("Top Genes Correlated with TrkB.FL"),
        x = "Gene",
        y = "Correlation") +
   theme_minimal()
@@ -587,6 +608,8 @@ draw(heatmap_plot_FL,
      column_title = "Top 10 Genes Co-expressed with TrkB.FL",
      column_title_gp = gpar(fontsize = 16, fontface = "bold", col = "black"))
 dev.off()  # Close the PNG device
+
+ggsave("top_20_genes_barplot_FL.png", plot = top_20_genes_barplot_FL, width = 10, height = 8, dpi = 300)
 
 
 
@@ -752,7 +775,7 @@ top_unique_terms$GeneRatio <- sapply(strsplit(top_unique_terms$GeneRatio, "/"), 
 top_unique_terms$Description <- str_wrap(top_unique_terms$Description, width = 40)
 
  top_unique_terms$ShortDescription <- sapply(strsplit(top_unique_terms$Description, " "), function(words) {
-  paste(head(words, 3), collapse = " ")
+  paste(head(words, 4), collapse = " ")
 })
   # If there are no unique terms, stop the function here
   if (nrow(top_unique_terms) == 0) {
